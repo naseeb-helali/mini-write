@@ -1,0 +1,25 @@
+# Dependency directories
+node_modules
+npm-debug.log
+
+# Environment secrets (CRITICAL)
+.env
+.env.test
+.env.production
+
+# Git metadata
+.git
+.gitignore
+
+# Docker files
+Dockerfile
+docker-compose.yml
+
+# Test and coverage files
+coverage
+*.test.js
+*.spec.js
+
+# OS generated files
+.DS_Store
+Thumbs.db
