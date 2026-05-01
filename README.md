@@ -120,7 +120,7 @@ Client → Nginx (Gateway) → API → Redis (Queue) → Worker → MinIO + Post
 
 ---
 
-### 🧪 8. Testing
+## 🧪 8. Testing
 
 The system includes a comprehensive testing strategy covering:
 
