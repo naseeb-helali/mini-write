@@ -1,4 +1,6 @@
-# --- Stage 1: Build Stage ---
+# ==========================================
+# STAGE 1: Build & Dependency Resolution
+# ==========================================
 FROM node:20-alpine AS builder
 
 # 1. Install build dependencies (needed only for compiling 'sharp')
@@ -20,7 +22,9 @@ RUN npm ci --omit=dev && npm cache clean --force
 # 4. Copy the rest of the application
 COPY . .
 
-# --- Stage 2: Production Stage ---
+# ==========================================
+# STAGE 2: Final Runtime Image
+# ==========================================
 FROM node:20-alpine AS runner
 
 # 5. Install runtime shared libraries for Sharp

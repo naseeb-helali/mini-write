@@ -19,6 +19,7 @@ docker-compose.yml
 coverage
 *.test.js
 *.spec.js
+jest.config.js
 
 # OS generated files
 .DS_Store

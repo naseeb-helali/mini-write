@@ -48,7 +48,7 @@ const getSystemHealth = async () => {
     return {
         status: isHealthy ? 'UP' : 'DOWN',
         services: {
-            database: db,
+            postgres: db,
             redis: redis,
             storage: storage
         },

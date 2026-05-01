@@ -2,7 +2,7 @@
 process.env.MINIO_ENDPOINT = 'localhost';
 process.env.MINIO_PORT = '9000';
 process.env.JWT_SECRET = 'test_secret';
-process.env.DB_HOST = 'localhost';
+process.env.POSTGRES_HOST = 'localhost';
 // أضف هذا السطر مع بقية المتغيرات في ملف setup.js
 process.env.JWT_EXPIRES_IN = '1h';
 
