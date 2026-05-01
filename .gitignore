@@ -13,6 +13,7 @@ node_modules/
 .env.local
 .env.staging
 *.pem
+.gitignore
 
 # 3. OS & IDE Files
 .DS_Store
