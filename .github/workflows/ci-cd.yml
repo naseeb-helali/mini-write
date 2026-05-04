@@ -1,0 +1,192 @@
+name: Mini-Write Pro CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository }}
+  IMAGE_NAME: mini-write
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+
+# ==========================================
+# 1) QUALITY
+# ==========================================
+  quality:
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        service: [api, worker]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: ${{ matrix.service }}/package-lock.json
+
+      - run: cd ${{ matrix.service }} && npm ci
+
+      - run: cd ${{ matrix.service }} && npm run lint
+
+      - name: Test + Coverage Gate (NO jq/bc)
+        run: |
+          cd ${{ matrix.service }}
+          npm test -- --coverage
+          node -e "
+          const c=require('./coverage/coverage-summary.json');
+          const pct=c.total.lines.pct;
+          console.log('Coverage:', pct);
+          if(pct<70) process.exit(1);
+          "
+
+# ==========================================
+# 2) SECURITY
+# ==========================================
+  security:
+    needs: quality
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        service: [api, worker]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: cd ${{ matrix.service }} && npm audit --audit-level=high
+
+# ==========================================
+# 3) BUILD
+# ==========================================
+  build:
+    needs: [quality, security]
+    runs-on: self-hosted
+
+    strategy:
+      matrix:
+        service: [api, worker, proxy]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./${{ matrix.service }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}:${{ github.sha }}
+
+# ==========================================
+# 4) DEPLOY STAGING (SAFE)
+# ==========================================
+deploy-staging:
+  needs: build
+  runs-on: self-hosted
+  environment: staging
+
+  env:
+    DEPLOY_MODE: local # ← غيّرها إلى ssh عند الحاجة
+
+  steps:
+
+    # =========================
+    # 1) Generate env
+    # =========================
+    - name: Generate env file
+      run: |
+        cat <<EOF > .env.staging
+        NODE_ENV=production
+        HTTP_PORT=80
+
+        DB_HOST=postgres
+        DB_PORT=5432
+        POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+        POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+        POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+
+        REDIS_HOST=redis
+        REDIS_PORT=6379
+        REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+
+        MINIO_ROOT_USER=${{ secrets.MINIO_ROOT_USER }}
+        MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
+        MINIO_ENDPOINT=storage
+        MINIO_PORT=9000
+
+        JWT_SECRET=${{ secrets.JWT_SECRET }}
+        JWT_EXPIRY=1h
+
+        WORKER_RETRY_LIMIT=3
+        WORKER_CONCURRENCY=2
+        QUEUE_NAME=document_processing
+        EOF
+
+    # =========================
+    # 2) LOCAL DEPLOY
+    # =========================
+    - name: Deploy (LOCAL)
+      if: env.DEPLOY_MODE == 'local'
+      run: |
+        cp .env.staging /opt/deploy/.env.staging
+
+        /opt/deploy/deploy.sh \
+        ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} \
+        ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+
+    # =========================
+    # 3) SSH DEPLOY
+    # =========================
+    - name: Copy env via SSH
+      if: env.DEPLOY_MODE == 'ssh'
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.VM_HOST }}
+        username: ${{ secrets.VM_USER }}
+        key: ${{ secrets.VM_SSH_KEY }}
+        source: ".env.staging"
+        target: "/opt/deploy/"
+
+    - name: Deploy via SSH
+      if: env.DEPLOY_MODE == 'ssh'
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.VM_HOST }}
+        username: ${{ secrets.VM_USER }}
+        key: ${{ secrets.VM_SSH_KEY }}
+        script: |
+          /opt/deploy/deploy.sh \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+
+    # =========================
+    # 4) Safety Mask
+    # =========================
+    - name: Mask secrets
+      run: echo "::add-mask::${{ secrets.JWT_SECRET }}"
+
+# ==========================================
+# 5) PRODUCTION
+# ==========================================
+  deploy-production:
+    needs: deploy-staging
+    runs-on: self-hosted
+    environment: production
+
+    steps:
+      - run: echo "Manual approval required"
