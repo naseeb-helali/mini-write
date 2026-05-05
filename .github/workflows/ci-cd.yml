@@ -95,90 +95,90 @@ jobs:
 # ==========================================
 # 4) DEPLOY STAGING (SAFE)
 # ==========================================
-deploy-staging:
-  needs: build
-  runs-on: self-hosted
-  environment: staging
+  deploy-staging:
+    needs: build
+    runs-on: self-hosted
+    environment: staging
 
-  env:
-    DEPLOY_MODE: local # ← غيّرها إلى ssh عند الحاجة
+    env:
+      DEPLOY_MODE: local # ← غيّرها إلى ssh عند الحاجة
 
-  steps:
+    steps:
 
-    # =========================
-    # 1) Generate env
-    # =========================
-    - name: Generate env file
-      run: |
-        cat <<EOF > .env.staging
-        NODE_ENV=production
-        HTTP_PORT=80
+      # =========================
+      # 1) Generate env
+      # =========================
+      - name: Generate env file
+        run: |
+          cat <<EOF > .env.staging
+          NODE_ENV=production
+          HTTP_PORT=80
 
-        DB_HOST=postgres
-        DB_PORT=5432
-        POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-        POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-        POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          DB_HOST=postgres
+          DB_PORT=5432
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
 
-        REDIS_HOST=redis
-        REDIS_PORT=6379
-        REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
 
-        MINIO_ROOT_USER=${{ secrets.MINIO_ROOT_USER }}
-        MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
-        MINIO_ENDPOINT=storage
-        MINIO_PORT=9000
+          MINIO_ROOT_USER=${{ secrets.MINIO_ROOT_USER }}
+          MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
+          MINIO_ENDPOINT=storage
+          MINIO_PORT=9000
 
-        JWT_SECRET=${{ secrets.JWT_SECRET }}
-        JWT_EXPIRY=1h
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          JWT_EXPIRY=1h
 
-        WORKER_RETRY_LIMIT=3
-        WORKER_CONCURRENCY=2
-        QUEUE_NAME=document_processing
-        EOF
+          WORKER_RETRY_LIMIT=3
+          WORKER_CONCURRENCY=2
+          QUEUE_NAME=document_processing
+          EOF
 
-    # =========================
-    # 2) LOCAL DEPLOY
-    # =========================
-    - name: Deploy (LOCAL)
-      if: env.DEPLOY_MODE == 'local'
-      run: |
-        cp .env.staging /opt/deploy/.env.staging
+      # =========================
+      # 2) LOCAL DEPLOY
+      # =========================
+      - name: Deploy (LOCAL)
+        if: env.DEPLOY_MODE == 'local'
+        run: |
+          cp .env.staging /opt/deploy/.env.staging
 
-        /opt/deploy/deploy.sh \
-        ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} \
-        ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
-
-    # =========================
-    # 3) SSH DEPLOY
-    # =========================
-    - name: Copy env via SSH
-      if: env.DEPLOY_MODE == 'ssh'
-      uses: appleboy/scp-action@v0.1.7
-      with:
-        host: ${{ secrets.VM_HOST }}
-        username: ${{ secrets.VM_USER }}
-        key: ${{ secrets.VM_SSH_KEY }}
-        source: ".env.staging"
-        target: "/opt/deploy/"
-
-    - name: Deploy via SSH
-      if: env.DEPLOY_MODE == 'ssh'
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.VM_HOST }}
-        username: ${{ secrets.VM_USER }}
-        key: ${{ secrets.VM_SSH_KEY }}
-        script: |
           /opt/deploy/deploy.sh \
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} \
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
 
-    # =========================
-    # 4) Safety Mask
-    # =========================
-    - name: Mask secrets
-      run: echo "::add-mask::${{ secrets.JWT_SECRET }}"
+      # =========================
+      # 3) SSH DEPLOY
+      # =========================
+      - name: Copy env via SSH
+        if: env.DEPLOY_MODE == 'ssh'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: ".env.staging"
+          target: "/opt/deploy/"
+
+      - name: Deploy via SSH
+        if: env.DEPLOY_MODE == 'ssh'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            /opt/deploy/deploy.sh \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+
+      # =========================
+      # 4) Safety Mask
+      # =========================
+      - name: Mask secrets
+        run: echo "::add-mask::${{ secrets.JWT_SECRET }}"
 
 # ==========================================
 # 5) PRODUCTION
