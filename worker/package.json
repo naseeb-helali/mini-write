@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "jest --detectOpenHandles"
+    "lint": "echo 'No linting configured yet'", 
+    "test": "jest --detectOpenHandles --coverage --coverageReporters='json-summary' 'text'"
   },
   "jest": {
     "testEnvironment": "node",
