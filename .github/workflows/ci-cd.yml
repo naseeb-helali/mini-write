@@ -61,6 +61,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
       - run: cd ${{ matrix.service }} && npm audit --audit-level=high
 
 # ==========================================
@@ -183,10 +188,10 @@ jobs:
 # ==========================================
 # 5) PRODUCTION
 # ==========================================
-  deploy-production:
-    needs: deploy-staging
-    runs-on: self-hosted
-    environment: production
+  # deploy-production:
+  #   needs: deploy-staging
+  #   runs-on: self-hosted
+  #   environment: production
 
-    steps:
-      - run: echo "Manual approval required"
+  #   steps:
+  #     - run: echo "Manual approval required"
