@@ -144,7 +144,13 @@ jobs:
           EOF
 
       # =========================
-      # 2) LOCAL DEPLOY
+      # 2) Login to GHCR
+      # =========================
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      # =========================
+      # 3) LOCAL DEPLOY
       # =========================
       - name: Deploy (LOCAL)
         if: env.DEPLOY_MODE == 'local'
@@ -156,7 +162,7 @@ jobs:
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
 
       # =========================
-      # 3) SSH DEPLOY
+      # 4) SSH DEPLOY
       # =========================
       - name: Copy env via SSH
         if: env.DEPLOY_MODE == 'ssh'
