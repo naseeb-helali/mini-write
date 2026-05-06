@@ -78,7 +78,7 @@ jobs:
 
     strategy:
       matrix:
-        service: [api, worker, proxy]
+        service: [api, worker]
 
     steps:
       - uses: actions/checkout@v4
