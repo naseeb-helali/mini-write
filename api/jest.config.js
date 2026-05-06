@@ -9,4 +9,8 @@ module.exports = {
   testMatch: ["**/tests/**/*.test.js"], 
   // السطر الجديد:
   setupFiles: ["<rootDir>/tests/setup.js"],
+  // لضمان توافق التقارير مع الـ Pipeline
+  collectCoverage: true,
+  coverageDirectory: "coverage",
+  coverageReporters: ["json-summary", "text", "lcov"]
 };
