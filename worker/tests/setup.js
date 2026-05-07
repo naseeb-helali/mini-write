@@ -12,7 +12,7 @@ jest.mock('../src/config/db', () => ({
   query: jest.fn()
 }));
 
-// 3. محاكاة مكتبة MinIO [cite: 25, 30]
+// 3. محاكاة مكتبة MinIO
 jest.mock('../src/config/storage', () => ({
   getObject: jest.fn(),
   putObject: jest.fn()
@@ -28,7 +28,7 @@ jest.mock('sharp', () => {
   }));
 });
 
-// 5. محاكاة BullMQ (لمنع تشغيل الـ Worker الحقيقي) [cite: 3]
+// 5. محاكاة BullMQ (لمنع تشغيل الـ Worker الحقيقي)
 jest.mock('bullmq', () => ({
   Worker: jest.fn().mockImplementation(() => ({
     on: jest.fn(),

@@ -10,40 +10,40 @@ describe('Image Processor - Unit Tests', () => {
   });
 
   test('Success: Process image, upload to MinIO, and update DB', async () => {
-    // 1. محاكاة بيانات المهمة (Job Data) [cite: 10]
+    // 1. محاكاة بيانات المهمة (Job Data)
     const mockJob = {
       data: { fileName: 'user123_id.jpg', userId: 1 }
     };
 
-    // 2. إعداد محاكاة قاعدة البيانات (Phase 1 & 3) [cite: 13, 31]
+    // 2. إعداد محاكاة قاعدة البيانات (Phase 1 & 3)
     // يجب محاكاة كل استدعاء لـ query بالترتيب الدقيق الموجود في الكود
     const mockClient = {
       query: jest.fn()
         // --- المرحلة الأولى: الحجز والتحقق ---
         .mockResolvedValueOnce({}) // BEGIN 
         .mockResolvedValueOnce({ rows: [{ identity_status: 'pending' }] }) // SELECT FOR UPDATE 
-        .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 1 }] }) // UPDATE to processing [cite: 17]
-        .mockResolvedValueOnce({}) // COMMIT [cite: 20]
+        .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 1 }] }) // UPDATE to processing 
+        .mockResolvedValueOnce({}) // COMMIT 
         // --- المرحلة الثالثة: التحديث النهائي ---
-        .mockResolvedValueOnce({}) // BEGIN [cite: 32]
-        .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE to verified [cite: 33]
-        .mockResolvedValueOnce({}), // COMMIT [cite: 34]
-      release: jest.fn() // [cite: 22, 36]
+        .mockResolvedValueOnce({}) // BEGIN 
+        .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE to verified
+        .mockResolvedValueOnce({}), // COMMIT 
+      release: jest.fn() 
     };
     
     // محاكاة pool.connect ليعيد الـ mockClient مرتين (مرة للمرحلة الأولى ومرة للثالثة)
     pool.connect.mockResolvedValue(mockClient);
 
-    // 3. محاكاة الـ Stream القادم من MinIO (Phase 2) [cite: 25]
+    // 3. محاكاة الـ Stream القادم من MinIO (Phase 2)
     const mockStream = new Readable();
     mockStream.push('fake-image-binary-data');
-    mockStream.push(null); // نهاية الـ Stream [cite: 26, 28]
+    mockStream.push(null); // نهاية الـ Stream 
     minioClient.getObject.mockResolvedValue(mockStream);
 
     // 4. تنفيذ الدالة المراد اختبارها
     const result = await processIdCard(mockJob);
 
-    // 5. التحقق من النتائج (Assertions) [cite: 34]
+    // 5. التحقق من النتائج (Assertions) 
     expect(result).toEqual({
       success: true,
       userId: 1,
