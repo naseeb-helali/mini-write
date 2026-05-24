@@ -102,6 +102,10 @@ jobs:
 # 4) DEPLOY STAGING (SAFE)
 # ==========================================
   deploy-staging:
+    timeout-minutes: 20
+    concurrency:
+      group: staging-deploy
+      cancel-in-progress: true
     needs: build
     runs-on: self-hosted
     environment: staging
@@ -155,9 +159,9 @@ jobs:
       - name: Deploy (LOCAL)
         if: env.DEPLOY_MODE == 'local'
         run: |
-          cp .env.staging /opt/deploy/.env.staging
+          cp .env.staging /opt/deploy/env/.env.staging
 
-          /opt/deploy/deploy.sh \
+          /opt/deploy/compose/deploy.sh \
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} \
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
 
@@ -172,7 +176,7 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           source: ".env.staging"
-          target: "/opt/deploy/"
+          target: "/opt/deploy/env/"
 
       - name: Deploy via SSH
         if: env.DEPLOY_MODE == 'ssh'
@@ -182,7 +186,7 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            /opt/deploy/deploy.sh \
+            /opt/deploy/compose/deploy.sh \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
 
