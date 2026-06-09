@@ -1,0 +1,142 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+LOCK="/var/lock/deploy.lock"
+STATE="{{ deploy_root }}/state/deployment_state.json"
+LOG="{{ deploy_root }}/logs/deploy.log"
+ENV_FILE="{{ deploy_root }}/env/.env.staging"
+
+# =========================
+# Lock
+# =========================
+if [ -f $LOCK ]; then
+  echo "❌ Deployment locked"
+  exit 1
+fi
+
+touch $LOCK
+trap "rm -f $LOCK" EXIT
+
+# =========================
+# Args validation
+# =========================
+NEW_API=$1
+NEW_WORKER=$2
+
+if [ -z "$NEW_API" ] || [ -z "$NEW_WORKER" ]; then
+  echo "❌ Missing image arguments" >> $LOG
+  exit 1
+fi
+
+cd {{ deploy_root }}/compose
+mkdir -p {{ deploy_root }}/logs
+
+exec >> {{ deploy_root }}/logs/deploy.log 2>&1
+echo ""
+echo "================================================"
+echo "$(date) - Starting deployment"
+echo "API_IMAGE=$NEW_API"
+echo "WORKER_IMAGE=$NEW_WORKER"
+echo "================================================"
+
+# =========================
+# Env validation
+# =========================
+if [ ! -f "$ENV_FILE" ]; then
+  echo "❌ Missing .env.staging" >> $LOG
+  exit 1
+fi
+
+required_vars=(
+  POSTGRES_USER
+  POSTGRES_PASSWORD
+  POSTGRES_DB
+  REDIS_PASSWORD
+  JWT_SECRET
+)
+
+for var in "${required_vars[@]}"; do
+  if ! grep -q "^$var=" "$ENV_FILE"; then
+    echo "❌ Missing $var in .env.staging" >> $LOG
+    exit 1
+  fi
+done
+
+# =========================
+# Load state
+# =========================
+CURRENT_API=$(jq -r '.current.api' $STATE)
+CURRENT_WORKER=$(jq -r '.current.worker' $STATE)
+
+# =========================
+# Deploy
+# =========================
+export API_IMAGE=$NEW_API
+export WORKER_IMAGE=$NEW_WORKER
+
+echo "⬇️ Pulling images..." >> $LOG
+docker compose -p mini-write --env-file {{ deploy_root }}/env/.env.staging -f {{ deploy_root }}/compose/docker-compose.staging.yml pull
+
+echo "🚀 Deploying..." >> $LOG
+docker compose -p mini-write --env-file {{ deploy_root }}/env/.env.staging -f {{ deploy_root }}/compose/docker-compose.staging.yml up -d --remove-orphans
+
+# =========================
+# System-level Health Check (HTTP-based)
+# =========================
+echo "🩺 Running system health check..." >> $LOG
+
+MAX_RETRIES=12
+SLEEP=5
+SUCCESS=0
+
+for i in $(seq 1 $MAX_RETRIES); do
+  RESPONSE_FULL=$(curl -s -w "\n%{http_code}" http://localhost/health/ready || echo "000")
+
+  HTTP_STATUS=$(echo "$RESPONSE_FULL" | tail -n1)
+  BODY=$(echo "$RESPONSE_FULL" | head -n -1)
+
+  if [ "$HTTP_STATUS" -eq 200 ]; then
+    echo "✅ System healthy (HTTP 200)" >> $LOG
+    # if echo "$BODY" | grep -qi "UP"; then ... fi
+    SUCCESS=1
+    break
+  fi
+
+  echo "⏳ Waiting for system... ($i/$MAX_RETRIES) - Status: $HTTP_STATUS" >> $LOG
+  # echo "Debug Body: $BODY"
+
+  sleep $SLEEP
+done
+
+if [ $SUCCESS -eq 0 ]; then
+
+  echo "❌ Health check failed after $MAX_RETRIES attempts" >> $LOG
+
+  echo "❌ Deployment failed → starting rollback" >> $LOG
+
+  {{ deploy_root }}/scripts/rollback.sh
+
+  echo "❌ Deployment rolled back" >> $LOG
+
+  exit 1
+
+fi
+
+# =========================
+# Result handling
+# =========================
+if [ "$SUCCESS" = "1" ]; then
+# Save previous
+  echo "✅ Deployment success" >> $LOG
+
+  jq \
+  ".previous.api=\"$CURRENT_API\" |
+   .previous.worker=\"$CURRENT_WORKER\" |
+   .current.api=\"$NEW_API\" |
+   .current.worker=\"$NEW_WORKER\"" \
+   "$STATE" > tmp && mv tmp "$STATE"
+
+  echo "🧹 Cleaning old images..." >> $LOG
+  docker image prune --filter "until=168h" -f
+
+fi

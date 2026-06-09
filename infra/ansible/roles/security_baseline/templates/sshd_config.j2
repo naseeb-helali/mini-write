@@ -1,0 +1,4 @@
+PasswordAuthentication {{ 'no' if security_disable_password_auth else 'yes' }}
+PermitRootLogin {{ 'no' if security_disable_root_login else 'prohibit-password' }}
+PubkeyAuthentication {{ 'yes' if security_enable_pubkey_auth else 'no' }}
+PermitEmptyPasswords {{ 'no' if security_disable_empty_passwords else 'yes' }}

@@ -1,0 +1,13 @@
+---
+- name: Provision Mini-Write staging host
+  hosts: staging
+  become: true
+  vars_files:
+    - ../vault/staging-secrets.yml
+
+  roles:
+    - base
+    - docker
+    - deploy_runtime
+    - github_runner
+    - security_baseline

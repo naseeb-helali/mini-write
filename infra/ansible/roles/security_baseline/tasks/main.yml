@@ -1,0 +1,43 @@
+---
+- name: Install security baseline packages
+  ansible.builtin.apt:
+    name:
+      - ufw
+    state: present
+    update_cache: true
+
+- name: Set default incoming firewall policy
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+
+- name: Set default outgoing firewall policy
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Allow required TCP ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ security_allowed_tcp_ports }}"
+
+- name: Enable UFW firewall
+  community.general.ufw:
+    state: enabled
+
+- name: Deploy SSH hardening override
+  ansible.builtin.template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config.d/99-miniwrite-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "/usr/sbin/sshd -t -f %s"
+  notify: Restart SSH service
+
+- name: Ensure SSH service is enabled
+  ansible.builtin.systemd:
+    name: ssh
+    enabled: true

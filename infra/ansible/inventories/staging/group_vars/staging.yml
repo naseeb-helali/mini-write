@@ -1,0 +1,18 @@
+---
+project_name: mini-write
+
+deploy_user: devopsadmin
+
+deploy_root: /opt/deploy
+
+github_runner_name: "{{ inventory_hostname }}"
+github_runner_labels:
+  - self-hosted
+  - linux
+  - x64
+  - staging
+  - mini-write
+
+github_runner_install_dir: "/home/{{ deploy_user }}/actions-runner"
+
+docker_compose_project_name: mini-write

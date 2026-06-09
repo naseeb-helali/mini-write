@@ -12,6 +12,8 @@ jobs:
       - self-hosted
       - linux
       - x64
+      - staging
+      - mini-write
 
     steps:
       - name: Checkout repository

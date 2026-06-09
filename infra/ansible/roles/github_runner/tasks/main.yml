@@ -1,0 +1,150 @@
+---
+- name: Install GitHub Runner dependencies
+  ansible.builtin.apt:
+    name:
+      - curl
+      - tar
+      - git
+    state: present
+
+- name: Create GitHub Runner install directory
+  ansible.builtin.file:
+    path: "{{ github_runner_install_dir }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0755"
+
+- name: Check if runner already exists
+  ansible.builtin.stat:
+    path: "{{ github_runner_install_dir }}/run.sh"
+  register: runner_binary
+
+- name: Download GitHub Runner archive
+  ansible.builtin.get_url:
+    url: "{{ github_runner_download_url }}"
+    dest: "{{ github_runner_archive_path }}"
+    mode: "0644"
+  when: not runner_binary.stat.exists
+
+- name: Extract GitHub Runner archive
+  ansible.builtin.unarchive:
+    src: "{{ github_runner_archive_path }}"
+    dest: "{{ github_runner_install_dir }}"
+    remote_src: true
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+  when: not runner_binary.stat.exists
+
+- name: Ensure runner installation ownership
+  ansible.builtin.file:
+    path: "{{ github_runner_install_dir }}"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    recurse: true
+
+- name: Check if runner is already registered
+  ansible.builtin.stat:
+    path: "{{ github_runner_install_dir }}/.runner"
+  register: runner_registration
+
+- name: Request GitHub runner registration token
+  ansible.builtin.uri:
+    url: "{{ github_runner_api_url }}"
+    method: POST
+    headers:
+      Accept: application/vnd.github+json
+      Authorization: "Bearer {{ github_runner_pat }}"
+      X-GitHub-Api-Version: "2022-11-28"
+    status_code: 201
+    body_format: json
+  register: github_runner_token_response
+  when: not runner_registration.stat.exists
+  no_log: true
+
+- name: Register GitHub Actions runner
+  ansible.builtin.command:
+    argv:
+      - ./config.sh
+      - --url
+      - "{{ github_runner_repo_url }}"
+      - --token
+      - "{{ github_runner_token_response.json.token }}"
+      - --name
+      - "{{ github_runner_name }}"
+      - --labels
+      - "{{ github_runner_labels | join(',') }}"
+      - --unattended
+      - --replace
+      - "{{ '--disableupdate' if github_runner_disable_update else '' }}"
+    chdir: "{{ github_runner_install_dir }}"
+  become: true
+  become_user: "{{ deploy_user }}"
+  when: not runner_registration.stat.exists
+  no_log: true
+
+- name: Check if GitHub runner service exists
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/actions.runner.{{ github_owner }}-{{ github_repo }}.{{ github_runner_name }}.service"
+  register: github_runner_service
+
+- name: Install GitHub runner service
+  ansible.builtin.command:
+    cmd: ./svc.sh install {{ deploy_user }}
+    chdir: "{{ github_runner_install_dir }}"
+  become: true
+  when: not github_runner_service.stat.exists
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+
+- name: Ensure GitHub runner service is enabled and running
+  ansible.builtin.systemd:
+    name: "actions.runner.{{ github_owner }}-{{ github_repo }}.{{ github_runner_name }}"
+    enabled: true
+    state: started
+  become: true
+
+- name: Get deploy user groups
+  ansible.builtin.command:
+    cmd: id -nG {{ deploy_user }}
+  register: deploy_user_groups
+  changed_when: false
+
+- name: Assert deploy user has docker access
+  ansible.builtin.assert:
+    that:
+      - "'docker' in deploy_user_groups.stdout.split()"
+    fail_msg: >-
+      Deploy user {{ deploy_user }}
+      is not a member of docker group.
+      GitHub runner will not be able to run Docker workloads.
+    success_msg: >-
+      Deploy user has Docker access.
+
+- name: Validate mutable deployment paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: deploy_runtime_validation
+  loop:
+    - /opt/deploy/state
+    - /opt/deploy/logs
+    - /opt/deploy/env
+
+- name: Assert deployment runtime exists
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isdir
+    fail_msg: "Deployment runtime directory missing"
+  loop: "{{ deploy_runtime_validation.results }}"
+
+- name: Verify GitHub runner service status
+  ansible.builtin.command:
+    cmd: systemctl is-active actions.runner.{{ github_owner }}-{{ github_repo }}.{{ github_runner_name }}
+  register: github_runner_service_status
+  changed_when: false
+  failed_when: github_runner_service_status.stdout != "active"
+  become: true

@@ -1,0 +1,10 @@
+---
+security_allowed_tcp_ports:
+  - 22
+  - 80
+  - 443
+
+security_disable_root_login: true
+security_disable_password_auth: true
+security_enable_pubkey_auth: true
+security_disable_empty_passwords: true

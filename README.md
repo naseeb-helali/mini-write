@@ -219,7 +219,6 @@ Key principles:
 ## 🔮 Next Steps (Planned)
 
 * Kubernetes deployment (HPA + Probes)
-* CI/CD pipeline (GitHub Actions)
 * Observability stack (Prometheus + Grafana + ELK)
 * Infrastructure as Code (Terraform + Ansible)
 

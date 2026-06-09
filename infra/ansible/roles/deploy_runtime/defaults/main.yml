@@ -1,0 +1,36 @@
+---
+deploy_root: /opt/deploy
+
+deploy_directories:
+  - compose
+  - scripts
+  - state
+  - logs
+  - env
+  - proxy
+
+deployment_state_file: "{{ deploy_root }}/state/deployment_state.json"
+
+deployment_log_file: "{{ deploy_root }}/logs/deploy.log"
+
+deploy_scripts:
+  - deploy.sh
+  - rollback.sh
+
+deploy_runtime_directories:
+  - compose
+  - scripts
+  - state
+  - logs
+  - env
+  - proxy
+
+immutable_runtime_dirs:
+  - compose
+  - scripts
+  - proxy
+
+mutable_runtime_dirs:
+  - state
+  - logs
+  - env

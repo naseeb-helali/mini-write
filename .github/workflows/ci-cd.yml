@@ -16,10 +16,62 @@ permissions:
 jobs:
 
 # ==========================================
+# 0) VALIDATE
+# ==========================================
+  validate-runner:
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - staging
+      - mini-write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show runner context
+        run: |
+          echo "Runner validation started"
+          whoami
+          hostname
+          pwd
+
+      - name: Validate Docker access
+        run: |
+          docker --version
+          docker compose version
+          docker ps
+
+      - name: Validate deploy runtime
+        run: |
+          ls -la /opt/deploy
+          ls -la /opt/deploy/logs
+          ls -la /opt/deploy/state
+          ls -la /opt/deploy/env
+
+      - name: Validate write access
+        run: |
+          echo "runner validation $(date)" >> /opt/deploy/logs/deploy.log
+          tail -n 5 /opt/deploy/logs/deploy.log
+
+      - name: Success confirmation
+        run: |
+          echo "Runner validation completed successfully"
+
+
+# ==========================================
 # 1) QUALITY
 # ==========================================
   quality:
-    runs-on: self-hosted
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - staging
+      - mini-write
+
     strategy:
       matrix:
         service: [api, worker]
@@ -53,7 +105,14 @@ jobs:
 # ==========================================
   security:
     needs: quality
-    runs-on: self-hosted
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - staging
+      - mini-write
+
     strategy:
       matrix:
         service: [api, worker]
@@ -74,7 +133,13 @@ jobs:
 # ==========================================
   build:
     needs: [quality, security]
-    runs-on: self-hosted
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - staging
+      - mini-write
 
     strategy:
       matrix:
@@ -107,7 +172,14 @@ jobs:
       group: staging-deploy
       cancel-in-progress: true
     needs: build
-    runs-on: self-hosted
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - staging
+      - mini-write
+
     environment: staging
 
     env:

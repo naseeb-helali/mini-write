@@ -1,0 +1,12 @@
+---
+base_packages:
+  - curl
+  - jq
+  - git
+  - unzip
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - software-properties-common
+  - apt-transport-https
+  - ufw

@@ -1,0 +1,27 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+STATE="{{ deploy_root }}/state/deployment_state.json"
+
+PREV_API=$(jq -r '.previous.api' $STATE)
+PREV_WORKER=$(jq -r '.previous.worker' $STATE)
+
+if [ -z "$PREV_API" ] || [ "$PREV_API" == "null" ]; then
+  echo "❌ No previous version found — cannot rollback"
+  exit 1
+fi
+
+if [ -z "$PREV_WORKER" ] || [ "$PREV_WORKER" == "null" ]; then
+  echo "❌ Worker rollback not available"
+  exit 1
+fi
+
+echo "🔁 Rolling back to previous version..."
+
+export API_IMAGE=$PREV_API
+export WORKER_IMAGE=$PREV_WORKER
+
+cd {{ deploy_root }}/compose
+docker compose -p mini-write --env-file {{ deploy_root }}/env/.env.staging -f {{ deploy_root }}/compose/docker-compose.staging.yml up -d
+
+echo "✅ Rollback complete"
