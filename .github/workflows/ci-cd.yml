@@ -65,6 +65,7 @@ jobs:
 # ==========================================
   quality:
 
+    needs: validate-runner
     runs-on:
       - self-hosted
       - linux

@@ -70,6 +70,3 @@ module.exports = { app, startServer };
 if (require.main === module) {
   startServer();
 }
-
-
-
