@@ -234,7 +234,7 @@ jobs:
         run: |
           cp .env.staging /opt/deploy/env/.env.staging
 
-          /opt/deploy/compose/deploy.sh \
+          /opt/deploy/scripts/deploy.sh \
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} \
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
 

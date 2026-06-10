@@ -2,7 +2,7 @@
 github_owner: naseeb-helali
 github_repo: mini-write
 
-github_runner_version: "2.329.0"
+github_runner_version: "2.334.0"
 
 github_runner_name: "{{ ansible_hostname }}"
 
