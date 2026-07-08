@@ -212,6 +212,8 @@ jobs:
           MINIO_ENDPOINT=storage
           MINIO_PORT=9000
 
+          GRAFANA_ADMIN_PASSWORD=${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           JWT_EXPIRY=1h
 

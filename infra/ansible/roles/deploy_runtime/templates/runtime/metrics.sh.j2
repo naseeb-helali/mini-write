@@ -1,0 +1,815 @@
+#!/bin/bash
+
+# ==========================================================
+# Mini-Write Deployment Runtime
+# Metrics Module
+# ==========================================================
+#
+# Responsibilities
+#
+#   • Metrics Runtime Configuration
+#   • Metrics Registry
+#   • Metrics API
+#   • Registry Operations
+#   • Prometheus Formatting
+#   • Metrics Export
+#
+# Non Responsibilities
+#
+#   • Deployment Validation
+#   • Docker Operations
+#   • Health Verification
+#   • Rollback Logic
+#   • Deployment Logging
+#   • Runtime Orchestration
+#
+# ==========================================================
+
+# ==========================================================
+# Runtime Identity
+# ==========================================================
+
+MW_METRICS_MODULE="deployment-metrics"
+
+MW_METRICS_VERSION="1.0"
+
+# ==========================================================
+# Runtime Configuration
+# ==========================================================
+
+MW_METRICS_ROOT="{{ deploy_root }}/metrics"
+
+MW_PROMETHEUS_FILE="${MW_METRICS_ROOT}/deployment.prom"
+
+MW_PROMETHEUS_TMP="${MW_PROMETHEUS_FILE}.tmp"
+
+# ==========================================================
+# Metrics Namespace
+# ==========================================================
+
+MW_METRIC_NAMESPACE="mini_write"
+
+MW_METRIC_SUBSYSTEM="deployment"
+
+# ==========================================================
+# Registry Configuration
+# ==========================================================
+#
+# Runtime Registry Configuration
+#
+
+
+
+
+# ==========================================================
+# Export Configuration
+# ==========================================================
+#
+# Prometheus Export Configuration
+#
+
+
+
+
+# ==========================================================
+# Registry Layer
+# ==========================================================
+#
+# Runtime Registry Storage
+#
+# Stores normalized metric records during a single deployment
+# lifecycle. This registry exists in-memory only.
+#
+
+declare -Ag MW_METRIC_VALUES=()
+
+declare -Ag MW_METRIC_TYPES=()
+
+declare -Ag MW_METRIC_HELP=()
+
+declare -Ag MW_METRIC_UNIT_MAP=()
+
+# ==========================================================
+# Registry Operations
+# ==========================================================
+#
+# Registry CRUD Operations
+#
+
+
+## Registry Bootstrap 
+
+initialize_metrics_registry() {
+
+    MW_METRIC_VALUES=()
+
+    MW_METRIC_TYPES=()
+
+    MW_METRIC_HELP=()
+
+    MW_METRIC_UNIT_MAP=()
+
+
+    return 0
+}
+
+reset_metrics_registry() {
+
+    initialize_metrics_registry
+
+    return $?
+
+}
+
+
+## Internal Metrics API
+
+metrics_register_counter() {
+
+    local metric_name="$1"
+    local help_text="$2"
+    local unit="$3"
+
+    if metrics_exists "$metric_name"; then
+        return 1
+    fi
+
+    MW_METRIC_TYPES["$metric_name"]="counter"
+    MW_METRIC_HELP["$metric_name"]="$help_text"
+    MW_METRIC_VALUES["$metric_name"]=0
+    MW_METRIC_UNIT_MAP["$metric_name"]="$unit"
+    return 0
+}
+
+metrics_register_gauge() {
+
+    local metric_name="$1"
+    local help_text="$2"
+    local unit="$3"
+
+    if metrics_exists "$metric_name"; then
+        return 1
+    fi
+
+    MW_METRIC_TYPES["$metric_name"]="gauge"
+    MW_METRIC_HELP["$metric_name"]="$help_text"
+    MW_METRIC_VALUES["$metric_name"]=0
+    MW_METRIC_UNIT_MAP["$metric_name"]="$unit"
+    return 0
+}
+
+metrics_register_histogram() {
+
+    local metric_name="$1"
+    local help_text="$2"
+    local unit="$3"
+
+    if metrics_exists "$metric_name"; then
+        return 1
+    fi
+
+    MW_METRIC_TYPES["$metric_name"]="histogram"
+    MW_METRIC_HELP["$metric_name"]="$help_text"
+    MW_METRIC_VALUES["$metric_name"]=""
+    MW_METRIC_UNIT_MAP["$metric_name"]="$unit"
+
+    return 0
+}
+
+
+## Registry Lookup
+
+metrics_exists() {
+
+    local metric_name="$1"
+
+    [[ -v MW_METRIC_TYPES["$metric_name"] ]]
+
+}
+
+get_metric_value() {
+
+    local metric_name="$1"
+
+    printf '%s\n' "${MW_METRIC_VALUES[$metric_name]}"
+
+}
+
+get_metric_type() {
+
+    local metric_name="$1"
+
+    printf '%s\n' "${MW_METRIC_TYPES[$metric_name]}"
+
+}
+
+get_metric_help() {
+
+    local metric_name="$1"
+
+    printf '%s\n' "${MW_METRIC_HELP[$metric_name]}"
+
+}
+
+get_metric_unit() {
+
+    local metric_name="$1"
+
+    printf '%s\n' "${MW_METRIC_UNIT_MAP[$metric_name]}"
+
+}
+
+
+## Registry Update
+
+set_metric_value() {
+
+    local metric_name="$1"
+    local metric_value="$2"
+
+    if ! metrics_exists "$metric_name"; then
+        return 1
+    fi
+
+    MW_METRIC_VALUES["$metric_name"]="$metric_value"
+
+    return 0
+
+}
+
+
+## Registry Enumeration
+
+list_registered_metrics() {
+
+    printf '%s\n' "${!MW_METRIC_TYPES[@]}"
+
+}
+
+
+## Cont.. Registry Bootstrap
+
+register_deployment_metrics() {
+
+    metrics_register_histogram \
+        "deployment_duration_seconds" \
+        "Total deployment execution duration." \
+        "seconds"
+
+    metrics_register_counter \
+        "deployment_success_total" \
+        "Successful deployments." \
+        "operations"
+
+    metrics_register_counter \
+        "deployment_failure_total" \
+        "Failed deployments." \
+        "operations"
+
+    metrics_register_histogram \
+        "deployment_stage_duration_seconds" \
+        "Deployment stage execution duration." \
+        "seconds"
+
+    metrics_register_histogram \
+        "preflight_duration_seconds" \
+        "Preflight validation duration." \
+        "milliseconds"
+
+    metrics_register_counter \
+        "preflight_success_total" \
+        "Successful preflight validations." \
+        "operations"
+
+    metrics_register_counter \
+        "preflight_failure_total" \
+        "Failed preflight validations." \
+        "operations"
+
+}
+
+register_health_metrics() {
+
+    metrics_register_histogram \
+        "health_verification_duration_seconds" \
+        "Deployment health verification duration." \
+        "milliseconds"
+
+    metrics_register_counter \
+        "health_verification_success_total" \
+        "Successful deployment health verifications." \
+        "operations"
+
+    metrics_register_counter \
+        "health_verification_failure_total" \
+        "Failed deployment health verifications." \
+        "operations"
+
+}
+
+register_recovery_metrics() {
+
+    metrics_register_histogram \
+        "rollback_duration_seconds" \
+        "Rollback execution duration." \
+        "milliseconds"
+
+    metrics_register_counter \
+        "rollback_success_total" \
+        "Successful rollback operations." \
+        "operations"
+
+    metrics_register_counter \
+        "rollback_failure_total" \
+        "Failed rollback operations." \
+        "operations"
+
+}
+
+register_cleanup_metrics() {
+
+    metrics_register_histogram \
+        "cleanup_duration_seconds" \
+        "Docker image cleanup duration." \
+        "milliseconds"
+
+    metrics_register_counter \
+        "cleanup_success_total" \
+        "Successful Docker image cleanup operations." \
+        "operations"
+
+    metrics_register_counter \
+        "cleanup_failure_total" \
+        "Failed Docker image cleanup operations." \
+        "operations"
+
+}
+
+register_runtime_metrics() {
+
+    metrics_register_counter \
+        "image_pull_success_total" \
+        "Successful container image pulls." \
+        "operations"
+
+    metrics_register_counter \
+        "image_pull_failure_total" \
+        "Failed container image pulls." \
+        "operations"
+
+    metrics_register_histogram \
+        "compose_deployment_duration_seconds" \
+        "Docker Compose deployment duration." \
+        "milliseconds"
+
+    metrics_register_counter \
+        "compose_deployment_success_total" \
+        "Successful Docker Compose deployments." \
+        "operations"
+
+    metrics_register_counter \
+        "compose_deployment_failure_total" \
+        "Failed Docker Compose deployments." \
+        "operations"
+
+    metrics_register_histogram \
+        "image_pull_duration_seconds" \
+        "Container image pull duration." \
+        "seconds"
+
+    metrics_register_gauge \
+        "registry_size" \
+        "Number of registered runtime metrics." \
+        "metrics"
+
+    metrics_register_histogram \
+        "state_load_duration_seconds" \
+        "Deployment state loading duration." \
+        "milliseconds"
+
+    metrics_register_counter \
+        "state_load_success_total" \
+        "Successful deployment state loads." \
+        "operations"
+
+    metrics_register_counter \
+        "state_load_failure_total" \
+        "Failed deployment state loads." \
+        "operations"
+
+    metrics_register_histogram \
+        "state_update_duration_seconds" \
+        "Deployment state update duration." \
+        "milliseconds"
+
+    metrics_register_counter \
+        "state_update_success_total" \
+        "Successful deployment state updates." \
+        "operations"
+
+    metrics_register_counter \
+        "state_update_failure_total" \
+        "Failed deployment state updates." \
+        "operations"
+
+}
+
+bootstrap_metrics_registry() {
+
+    initialize_metrics_registry || return 1
+
+    register_deployment_metrics || return 1
+
+    register_health_metrics || return 1
+
+    register_recovery_metrics || return 1
+
+    register_cleanup_metrics || return 1
+
+    register_runtime_metrics || return 1
+
+    set_metric_value \
+        "registry_size" \
+        "$(list_registered_metrics | wc -l)"
+
+    return 0
+
+}
+
+
+
+
+# ==========================================================
+# Metrics API
+# ==========================================================
+#
+# Public Metrics API
+#
+
+
+## Duration API
+
+metrics_record_duration() {
+
+    local metric_name="$1"
+    local duration="$2"
+    local type
+
+    type="$(get_metric_type "$metric_name")"
+
+    [[ "$type" == "histogram" ]] || return 1
+
+    set_metric_value \
+        "$metric_name" \
+        "$duration"
+
+    return $?
+
+}
+
+
+## Result API
+
+metrics_record_result() {
+
+    local metric_name="$1"
+
+    metrics_increment \
+        "$metric_name"
+
+    return $?
+
+}
+
+
+## Counter API
+
+metrics_increment() {
+
+    local metric_name="$1"
+    local current
+    local type
+
+    type="$(get_metric_type "$metric_name")"
+
+    [[ "$type" == "counter" ]] || return 1
+
+    current="$(get_metric_value "$metric_name")"
+
+    current=$((current + 1))
+
+    set_metric_value \
+        "$metric_name" \
+        "$current"
+
+    return $?
+
+}
+
+
+## Gauge API
+
+metrics_set() {
+
+    local metric_name="$1"
+    local value="$2"
+    local type
+
+    type="$(get_metric_type "$metric_name")"
+
+    [[ "$type" == "gauge" ]] || return 1
+
+    set_metric_value \
+        "$metric_name" \
+        "$value"
+
+    return $?
+
+}
+
+# ==========================================================
+# Prometheus Formatter
+# ==========================================================
+#
+# Runtime Metrics Formatter
+#
+
+
+## Metric Name Formatter
+
+format_metric_name() {
+
+    local metric_name="$1"
+
+    printf '%s_%s_%s\n' \
+        "$MW_METRIC_NAMESPACE" \
+        "$MW_METRIC_SUBSYSTEM" \
+        "$metric_name"
+
+}
+
+
+## HELP Formatter
+
+format_metric_help() {
+
+    local metric_name="$1"
+
+    printf '# HELP %s %s\n' \
+        "$(format_metric_name "$metric_name")" \
+        "$(get_metric_help "$metric_name")"
+
+}
+
+
+## TYPE Formatter
+
+format_metric_type() {
+
+    local metric_name="$1"
+
+    printf '# TYPE %s %s\n' \
+        "$(format_metric_name "$metric_name")" \
+        "$(get_metric_type "$metric_name")"
+
+}
+
+
+## Sample Formatter
+
+format_metric_sample() {
+
+    local metric_name="$1"
+
+    printf '%s%s %s\n' \
+        "$(format_metric_name "$metric_name")" \
+        "$(get_metric_value "$metric_name")"
+
+}
+
+
+## Metric Formatter
+
+format_metric() {
+
+    local metric_name="$1"
+
+    format_metric_help \
+        "$metric_name"
+
+    format_metric_type \
+        "$metric_name"
+
+    format_metric_sample \
+        "$metric_name"
+
+}
+
+# ==========================================================
+# Export Engine
+# ==========================================================
+#
+# Prometheus Export Engine
+#
+## Metrics Store Bootstrap
+
+initialize_metrics_store() {
+
+    mkdir -p "$MW_METRICS_ROOT"
+
+    touch "$MW_PROMETHEUS_FILE"
+
+    return 0
+
+}
+
+
+## Metrics Snapshot Builder
+
+build_metrics_snapshot() {
+
+    local metric
+
+    : > "$MW_PROMETHEUS_TMP"
+
+    while IFS= read -r metric; do
+
+        format_metric "$metric"
+
+        printf '\n'
+
+    done < <(list_registered_metrics)
+
+    return 0
+
+}
+
+
+## Atomic Export
+
+write_metrics_snapshot() {
+
+    mv \
+        "$MW_PROMETHEUS_TMP" \
+        "$MW_PROMETHEUS_FILE"
+
+    return $?
+
+}
+
+
+## Export API
+
+export_metrics() {
+
+    initialize_metrics_store \
+        || return 1
+
+    build_metrics_snapshot \
+        || return 1
+
+    write_metrics_snapshot \
+        || return 1
+
+    return 0
+
+}
+# ==========================================================
+# Runtime Utilities
+# ==========================================================
+#
+# Shared Runtime Helpers
+#
+
+## Metrics Runtime Session
+
+metrics_begin_session() {
+
+    initialize_metrics_registry \
+        || return 1
+
+    bootstrap_metrics_registry \
+        || return 1
+
+    return 0
+
+}
+
+metrics_end_session() {
+
+    export_metrics \
+        || return 1
+
+    return 0
+
+}
+
+
+## Runtime Time Utilities
+
+runtime_now() {
+
+    date +%s%3N
+
+}
+
+runtime_duration() {
+
+    local start_time="$1"
+    local end_time="$2"
+
+    printf '%s\n' $((end_time - start_time))
+
+}
+
+runtime_measure() {
+
+    local start_time="$1"
+
+    runtime_duration \
+        "$start_time" \
+        "$(runtime_now)"
+
+}
+
+
+# ==========================================================
+# Instrumentation Helpers
+# ==========================================================
+
+record_duration() {
+
+    local duration_metric="$1"
+    local start_time="$2"
+
+    metrics_record_duration \
+        "$duration_metric" \
+        "$(runtime_measure "$start_time")"
+
+    return $?
+
+}
+
+record_operation_success() {
+
+    local success_metric="$1"
+
+    metrics_record_result \
+        "$success_metric"
+
+    return $?
+
+}
+
+record_operation_failure() {
+
+    local failure_metric="$1"
+
+    metrics_record_result \
+        "$failure_metric"
+
+    return $?
+
+}
+
+
+# ==========================================================
+# Deployment Session Lifecycle
+# ==========================================================
+
+
+
+complete_deployment_session() {
+
+    local start_time="$1"
+
+    record_duration \
+        "deployment_duration_seconds" \
+        "$start_time"
+
+    record_operation_success \
+        "deployment_success_total"
+
+    metrics_end_session
+
+    return $?
+
+}
+
+fail_deployment_session() {
+
+    local start_time="$1"
+
+    record_duration \
+        "deployment_duration_seconds" \
+        "$start_time"
+
+    record_operation_failure \
+        "deployment_failure_total"
+
+    metrics_end_session
+
+    return $?
+
+}
+

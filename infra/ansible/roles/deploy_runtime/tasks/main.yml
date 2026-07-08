@@ -14,6 +14,22 @@
     mode: '0755'
   loop: "{{ deploy_directories }}"
 
+- name: Create deployment metrics directory
+  ansible.builtin.file:
+    path: "{{ deploy_root }}/metrics"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0755"
+
+- name: Create runtime modules directory
+  ansible.builtin.file:
+    path: "{{ deploy_root }}/scripts/{{ runtime_subdirectory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: Deploy docker compose file
   ansible.builtin.template:
     src: docker-compose.staging.yml.j2
@@ -38,6 +54,15 @@
     group: root
     mode: '0755'
   loop: "{{ deploy_scripts }}"
+
+- name: Deploy runtime modules
+  ansible.builtin.template:
+    src: "runtime/{{ item }}.j2"
+    dest: "{{ deploy_root }}/scripts/{{ runtime_subdirectory }}/{{ item }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ deploy_runtime_modules }}"
 
 - name: Check deployment state file
   ansible.builtin.stat:

@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# ==========================================================
+# Mini-Write Deployment Runtime
+# Verification Module
+# ==========================================================
+
+wait_for_readiness() {
+
+    local endpoint="$1"
+
+    local retries="${2:-12}"
+
+    local interval="${3:-5}"
+
+    local attempt
+
+    for attempt in $(seq 1 "$retries"); do
+
+        RESPONSE=$(curl -s -w "\n%{http_code}" "$endpoint" || echo "000")
+
+        HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+
+        if [ "$HTTP_STATUS" -eq 200 ]; then
+            return 0
+        fi
+
+        sleep "$interval"
+
+    done
+
+    return 1
+}
+
+run_health_verification() {
+
+    local log_file="$1"
+    local endpoint="$2"
+
+    local start_time
+
+    start_time="$(runtime_now)"
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "HEALTH_VERIFICATION_STARTED" \
+        "Starting deployment health verification."
+
+    wait_for_readiness "$endpoint"
+
+    if [ $? -ne 0 ]; then
+
+        deployment_event \
+            "$log_file" \
+            "ERROR" \
+            "HEALTH_VERIFICATION_FAILED" \
+            "Deployment health verification failed."
+
+        record_duration \
+            "health_verification_duration_seconds" \
+            "$start_time"
+
+        record_operation_failure \
+            "health_verification_failure_total"
+
+        return 1
+
+    fi
+
+    deployment_event \
+        "$log_file" \
+        "SUCCESS" \
+        "HEALTH_VERIFICATION_COMPLETED" \
+        "Deployment health verification completed successfully."
+
+    record_duration \
+        "health_verification_duration_seconds" \
+        "$start_time"
+
+    record_operation_success \
+        "health_verification_success_total"
+
+    return 0
+}

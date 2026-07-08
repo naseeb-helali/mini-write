@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# ==========================================================
+# Mini-Write Deployment Runtime
+# Telemetry Module
+# ==========================================================
+
+source "{{ deploy_root }}/scripts/runtime/metrics.sh"
+
+# ==========================================================
+# Event Metadata
+# ==========================================================
+
+build_event_metadata() {
+
+    date --iso-8601=seconds
+
+}
+
+# ==========================================================
+# Event Publisher
+# ==========================================================
+
+publish_event() {
+
+    local log_file="$1"
+    local level="$2"
+    local event="$3"
+    local message="$4"
+
+    local timestamp
+    timestamp="$(build_event_metadata)"
+
+    deployment_log \
+        "$log_file" \
+        "[$timestamp] [$level] [$event] $message"
+}
+
+# ==========================================================
+# Public Event API
+# ==========================================================
+
+deployment_event() {
+
+    local log_file="$1"
+    local level="$2"
+    local event="$3"
+    local message="$4"
+
+    publish_event \
+        "$log_file" \
+        "$level" \
+        "$event" \
+        "$message"
+}
+
+# ==========================================================
+# Logging Backend
+# ==========================================================
+
+deployment_log() {
+
+    local log_file="$1"
+    shift
+
+    printf '%s\n' "$*" >> "$log_file"
+}
+
+# ==========================================================
+# Compatibility Wrappers
+# ==========================================================
+
+deployment_info() {
+
+    local log_file="$1"
+    shift
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "GENERAL" \
+        "$*"
+}
+
+deployment_success() {
+
+    local log_file="$1"
+    shift
+
+    deployment_event \
+        "$log_file" \
+        "SUCCESS" \
+        "GENERAL" \
+        "$*"
+}
+
+deployment_warning() {
+
+    local log_file="$1"
+    shift
+
+    deployment_event \
+        "$log_file" \
+        "WARNING" \
+        "GENERAL" \
+        "$*"
+}
+
+deployment_error() {
+
+    local log_file="$1"
+    shift
+
+    deployment_event \
+        "$log_file" \
+        "ERROR" \
+        "GENERAL" \
+        "$*"
+}

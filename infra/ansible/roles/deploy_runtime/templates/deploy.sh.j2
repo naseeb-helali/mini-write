@@ -1,4 +1,29 @@
 #!/bin/bash
+
+# ==========================================================
+# Mini-Write Deployment Runtime Orchestrator
+# ==========================================================
+#
+# Responsibilities
+#
+#   • Coordinate deployment workflow
+#   • Load runtime modules
+#   • Propagate execution status
+#
+# Non Responsibilities
+#
+#   • Validation Logic
+#   • Docker Operations
+#   • Health Verification
+#   • Recovery Logic
+#   • State Management
+#   • Deployment Telemetry
+#   • Runtime Cleanup
+#
+# All operational logic belongs to runtime modules.
+#
+# ==========================================================
+
 set -Eeuo pipefail
 
 LOCK="/var/lock/deploy.lock"
@@ -7,26 +32,30 @@ LOG="{{ deploy_root }}/logs/deploy.log"
 ENV_FILE="{{ deploy_root }}/env/.env.staging"
 
 # =========================
-# Lock
+# Runtime Modules
 # =========================
-if [ -f $LOCK ]; then
-  echo "❌ Deployment locked"
-  exit 1
-fi
 
-touch $LOCK
-trap "rm -f $LOCK" EXIT
+source "{{ deploy_root }}/scripts/runtime/state.sh"
+
+source "{{ deploy_root }}/scripts/runtime/preflight.sh"
+
+source "{{ deploy_root }}/scripts/runtime/executor.sh"
+
+source "{{ deploy_root }}/scripts/runtime/verifier.sh"
+
+source "{{ deploy_root }}/scripts/runtime/recovery.sh"
+
+source "{{ deploy_root }}/scripts/runtime/telemetry.sh"
+
+source "{{ deploy_root }}/scripts/runtime/metrics.sh"
+
+source "{{ deploy_root }}/scripts/runtime/cleanup.sh"
 
 # =========================
-# Args validation
+# Deployment Context
 # =========================
 NEW_API=$1
 NEW_WORKER=$2
-
-if [ -z "$NEW_API" ] || [ -z "$NEW_WORKER" ]; then
-  echo "❌ Missing image arguments" >> $LOG
-  exit 1
-fi
 
 cd {{ deploy_root }}/compose
 mkdir -p {{ deploy_root }}/logs
@@ -39,34 +68,48 @@ echo "API_IMAGE=$NEW_API"
 echo "WORKER_IMAGE=$NEW_WORKER"
 echo "================================================"
 
-# =========================
-# Env validation
-# =========================
-if [ ! -f "$ENV_FILE" ]; then
-  echo "❌ Missing .env.staging" >> $LOG
-  exit 1
+metrics_begin_session
+
+if [ $? -ne 0 ]; then
+
+    deployment_error \
+        "$LOG" \
+        "Metrics runtime initialization failed."
+
+    exit 1
+
 fi
 
-required_vars=(
-  POSTGRES_USER
-  POSTGRES_PASSWORD
-  POSTGRES_DB
-  REDIS_PASSWORD
-  JWT_SECRET
-)
+deployment_start_time="$(runtime_now)"
 
-for var in "${required_vars[@]}"; do
-  if ! grep -q "^$var=" "$ENV_FILE"; then
-    echo "❌ Missing $var in .env.staging" >> $LOG
+# ==========================================================
+# Deployment Workflow
+# ==========================================================
+
+run_preflight \
+    "$LOG" \
+    "$NEW_API" \
+    "$NEW_WORKER" \
+    "$ENV_FILE"
+
+if [ $? -ne 0 ]; then
+    deployment_error \
+        "$LOG" \
+        "Preflight validation failed."
+
+    fail_deployment_session \
+        "$deployment_start_time"
+
     exit 1
-  fi
-done
+fi
 
 # =========================
 # Load state
 # =========================
-CURRENT_API=$(jq -r '.current.api' $STATE)
-CURRENT_WORKER=$(jq -r '.current.worker' $STATE)
+load_state "$LOG"
+
+CURRENT_API="$(get_current_api)"
+CURRENT_WORKER="$(get_current_worker)"
 
 # =========================
 # Deploy
@@ -74,69 +117,100 @@ CURRENT_WORKER=$(jq -r '.current.worker' $STATE)
 export API_IMAGE=$NEW_API
 export WORKER_IMAGE=$NEW_WORKER
 
-echo "⬇️ Pulling images..." >> $LOG
-docker compose -p mini-write --env-file {{ deploy_root }}/env/.env.staging -f {{ deploy_root }}/compose/docker-compose.staging.yml pull
+deployment_info \
+    "$LOG" \
+    "Pulling images..."
 
-echo "🚀 Deploying..." >> $LOG
-docker compose -p mini-write --env-file {{ deploy_root }}/env/.env.staging -f {{ deploy_root }}/compose/docker-compose.staging.yml up -d --remove-orphans
+deployment_info \
+    "$LOG" \
+    "Deploying containers..."
+
+run_deployment \
+    "$LOG" \
+    "{{ deploy_root }}/compose/docker-compose.staging.yml" \
+    "$ENV_FILE"
+
+if [ $? -ne 0 ]; then
+    deployment_error \
+        "$LOG" \
+        "Deployment execution failed."
+
+    fail_deployment_session \
+        "$deployment_start_time"
+
+    exit 1
+fi
 
 # =========================
 # System-level Health Check (HTTP-based)
 # =========================
-echo "🩺 Running system health check..." >> $LOG
+deployment_info \
+    "$LOG" \
+    "Running health verification..."
 
-MAX_RETRIES=12
-SLEEP=5
-SUCCESS=0
+run_health_verification \
+    "$LOG" \
+    "http://localhost/health/ready"
 
-for i in $(seq 1 $MAX_RETRIES); do
-  RESPONSE_FULL=$(curl -s -w "\n%{http_code}" http://localhost/health/ready || echo "000")
+if [ $? -ne 0 ]; then
 
-  HTTP_STATUS=$(echo "$RESPONSE_FULL" | tail -n1)
-  BODY=$(echo "$RESPONSE_FULL" | head -n -1)
+    deployment_error \
+        "$LOG" \
+        "Health verification failed."
 
-  if [ "$HTTP_STATUS" -eq 200 ]; then
-    echo "✅ System healthy (HTTP 200)" >> $LOG
-    # if echo "$BODY" | grep -qi "UP"; then ... fi
-    SUCCESS=1
-    break
-  fi
+    handle_failed_deployment "$LOG"
 
-  echo "⏳ Waiting for system... ($i/$MAX_RETRIES) - Status: $HTTP_STATUS" >> $LOG
-  # echo "Debug Body: $BODY"
+    fail_deployment_session \
+        "$deployment_start_time"
 
-  sleep $SLEEP
-done
-
-if [ $SUCCESS -eq 0 ]; then
-
-  echo "❌ Health check failed after $MAX_RETRIES attempts" >> $LOG
-
-  echo "❌ Deployment failed → starting rollback" >> $LOG
-
-  {{ deploy_root }}/scripts/rollback.sh
-
-  echo "❌ Deployment rolled back" >> $LOG
-
-  exit 1
+    exit 1
 
 fi
 
-# =========================
-# Result handling
-# =========================
-if [ "$SUCCESS" = "1" ]; then
-# Save previous
-  echo "✅ Deployment success" >> $LOG
+deployment_success \
+    "$LOG" \
+    "Deployment completed successfully."
 
-  jq \
-  ".previous.api=\"$CURRENT_API\" |
-   .previous.worker=\"$CURRENT_WORKER\" |
-   .current.api=\"$NEW_API\" |
-   .current.worker=\"$NEW_WORKER\"" \
-   "$STATE" > tmp && mv tmp "$STATE"
+update_state \
+    "$LOG" \
+    "$NEW_API" \
+    "$NEW_WORKER"
 
-  echo "🧹 Cleaning old images..." >> $LOG
-  docker image prune --filter "until=168h" -f
+if [ $? -ne 0 ]; then
+    deployment_error \
+        "$LOG" \
+        "Failed to update deployment state."
+
+    fail_deployment_session \
+        "$deployment_start_time"
+
+    exit 1
+fi
+
+# ==========================================================
+# Deployment Finalization
+# ==========================================================
+deployment_info \
+    "$LOG" \
+    "Cleaning unused Docker images..."
+
+cleanup_images "$LOG"
+
+if [ $? -ne 0 ]; then
+
+    deployment_warning \
+        "$LOG" \
+        "Docker image cleanup failed."
+
+fi
+
+complete_deployment_session \
+    "$deployment_start_time"
+
+if [ $? -ne 0 ]; then
+
+    deployment_warning \
+        "$LOG" \
+        "Metrics export failed."
 
 fi

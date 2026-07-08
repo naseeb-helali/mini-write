@@ -1,3 +1,5 @@
+const metricsMiddleware = require('./observability/middleware/metricsMiddleware');
+const register = require('./observability/registry');
 require('dotenv').config();
 const express = require('express');
 const { initUserTable } = require('./models/userModel');
@@ -5,9 +7,12 @@ const { initStorage } = require('./services/storageService');
 const authRoutes = require('./routes/authRoutes');
 const { getSystemHealth } = require('./health/healthService');
 require('./config/redis');
+const requestContext = require('./middleware/requestContext');
 
 const app = express();
 app.use(express.json());
+app.use(requestContext);
+app.use(metricsMiddleware);
 
 // 🔷 Routes & Health Probes (Defined outside for Testability)
 
@@ -54,6 +59,12 @@ async function startServer() {
 
     // 🔷 Start server
     const PORT = process.env.HTTP_PORT || 80;
+
+    app.get('/metrics', async (req, res) => {
+      res.set('Content-Type', register.contentType);
+      res.end(await register.metrics());
+    });
+
     app.listen(PORT, () => {
       console.log(`[API] Server is listening on port ${PORT}`);
     });

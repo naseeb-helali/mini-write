@@ -1,46 +1,232 @@
-const { Worker } = require('bullmq');
+const http = require('http');
+const { Worker, Queue } = require('bullmq');
 const redisConnection = require('./config/redis');
 const { processIdCard } = require('./processors/imageProcessor');
+const { register } = require('./observability/registry');
+const {
+  jobsProcessedTotal,
+  jobFailuresTotal,
+  jobsRetriedTotal,
 
+  jobsActive,
+  queueDepth,
+  queuePaused,
 
-  // The Worker Instance
- // Listens to the 'image-processing' queue and executes jobs.
+  jobDuration
+} = require('./observability/metrics');
+const logger = require(
+  './observability/logger'
+);
+const EVENTS = require(
+  './observability/events'
+);
+const {
+  buildJobContext
+} = require(
+  './observability/logContext'
+);
+// The Worker Instance
+// Listens to the 'image-processing' queue and executes jobs.
+
+const jobTimers = new Map();
+
+const queue = new Queue(
+    'image-processing',
+    {
+      connection: redisConnection
+    }
+  );
 
 const worker = new Worker(
-  'image-processing', // Target Queue Name
+  'image-processing',
+
   async (job) => {
-    // This is the logic executed for every job in the queue
-    return await processIdCard(job);
+    return processIdCard(job);
   },
+
   {
     connection: redisConnection,
-    concurrency: parseInt(process.env.WORKER_CONCURRENCY) || 2, // Process up to 2 images simultaneously (CPU Friendly)
-    removeOnComplete: { count: 100 }, // Keep only the last 100 successful jobs in Redis
-    removeOnFail: { count: 500 },     // Keep history of failed jobs for debugging
+
+    concurrency: parseInt(process.env.WORKER_CONCURRENCY) || 2,
+
+    removeOnComplete: {
+      count: 100
+    },
+
+    removeOnFail: {
+      count: 500
+    }
   }
 );
 
 // --- Professional Event Monitoring ---
 
 worker.on('active', (job) => {
-  console.log(`🏃 [Worker] Job ${job.id} started processing...`);
+  logger.info({
+    event:
+      EVENTS.JOB_STARTED,
+    ...buildJobContext(job)
+  });
+
+  jobsActive.inc({
+    queue_name: 'image-processing'
+  });
+
+  jobTimers.set(job.id, process.hrtime.bigint());
 });
 
-worker.on('completed', (job, returnValue) => {
-  console.log(`✨ [Worker] Job ${job.id} completed successfully! Result:`, returnValue);
+worker.on('completed', (job, result) => {
+  logger.info({
+    event:
+      EVENTS.JOB_COMPLETED,
+    ...buildJobContext(job),
+    result
+  });
+
+  jobsActive.dec({
+    queue_name: 'image-processing'
+  });
+
+  jobsProcessedTotal.inc({
+    job_type: job.name || 'image-processing',
+    status: 'success'
+  });
+
+  const start = jobTimers.get(job.id);
+
+  if (start) {
+    const duration =
+      Number(process.hrtime.bigint() - start) / 1e9;
+
+    jobDuration.observe(
+      {
+        job_type: job.name || 'image-processing',
+        status: 'success'
+      },
+      duration
+    );
+
+    jobTimers.delete(job.id);
+  }
 });
 
 worker.on('failed', (job, err) => {
-  console.error(`💥 [Worker] Job ${job.id} failed:`, err.message);
+  logger.error({
+    event:
+      EVENTS.JOB_FAILED,
+    ...buildJobContext(job),
+    error:
+      err.message,
+    error_type:
+      err.name || 'unknown'
+  });
 
-  // Professional Tip: Here you can send an alert to Slack/Discord in production
+  jobsActive.dec({
+    queue_name: 'image-processing'
+  });
+
+  jobFailuresTotal.inc({
+    job_type: job?.name || 'image-processing',
+    error_type: err.name || 'unknown'
+  });
+
+  jobsProcessedTotal.inc({
+    job_type: job?.name || 'image-processing',
+    status: 'failed'
+  });
+
+  const start = jobTimers.get(job?.id);
+
+  if (start) {
+    const duration =
+      Number(process.hrtime.bigint() - start) / 1e9;
+
+    jobDuration.observe(
+      {
+        job_type: job?.name || 'image-processing',
+        status: 'failed'
+      },
+      duration
+    );
+
+    jobTimers.delete(job?.id);
+  }
+
+  if (
+    job &&
+    job.attemptsMade > 0 &&
+    job.attemptsMade < job.opts.attempts
+  ) {
+    jobsRetriedTotal.inc({
+      job_type: job.name || 'image-processing'
+    });
+  }
 });
 
-console.log('👷 [Worker] Microservice is now ONLINE and waiting for jobs...');
+logger.info({
+  event:
+    EVENTS.WORKER_STARTED
+});
+
+setInterval(async () => {
+  try {
+
+    const waiting =
+      await queue.getWaitingCount();
+
+    const paused =
+      await queue.isPaused();
+
+    queueDepth.set(
+      {
+        queue_name: 'image-processing'
+      },
+      waiting
+    );
+
+    queuePaused.set(
+      {
+        queue_name: 'image-processing'
+      },
+      paused ? 1 : 0
+    );
+
+  } catch (err) {
+
+    console.error(
+      '[Queue Metrics Poller]',
+      err.message
+    );
+  }
+
+}, 15000);
 
 // Graceful Shutdown: Handle system signals (Docker stop/restart)
+
 process.on('SIGTERM', async () => {
-  console.info('🛑 [Worker] SIGTERM signal received. Closing worker...');
+  logger.warn({
+    event:
+      EVENTS.WORKER_STOPPING
+  });
+
   await worker.close();
+
   process.exit(0);
+});
+
+const metricsServer = http.createServer(async (req, res) => {
+  if (req.url !== '/metrics') {
+    res.writeHead(404);
+    return res.end();
+  }
+
+  res.writeHead(200, {
+    'Content-Type': register.contentType
+  });
+
+  res.end(await register.metrics());
+});
+
+metricsServer.listen(9464, () => {
+  console.log('Metrics server listening on port 9464');
 });

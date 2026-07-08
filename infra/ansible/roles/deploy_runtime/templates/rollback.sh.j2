@@ -3,8 +3,16 @@ set -Eeuo pipefail
 
 STATE="{{ deploy_root }}/state/deployment_state.json"
 
-PREV_API=$(jq -r '.previous.api' $STATE)
-PREV_WORKER=$(jq -r '.previous.worker' $STATE)
+# ==========================================================
+# Runtime Modules
+# ==========================================================
+
+source "{{ deploy_root }}/scripts/runtime/state.sh"
+
+load_state
+
+PREV_API="$(get_previous_api)"
+PREV_WORKER="$(get_previous_worker)"
 
 if [ -z "$PREV_API" ] || [ "$PREV_API" == "null" ]; then
   echo "❌ No previous version found — cannot rollback"

@@ -1,0 +1,209 @@
+#!/bin/bash
+
+# ==========================================================
+# Mini-Write Deployment Runtime
+# State Management Module
+# ==========================================================
+
+MW_STATE_FILE="{{ deploy_root }}/state/deployment_state.json"
+
+MW_STATE_CURRENT_API=""
+MW_STATE_CURRENT_WORKER=""
+
+MW_STATE_PREVIOUS_API=""
+MW_STATE_PREVIOUS_WORKER=""
+
+# ==========================================================
+# Validation
+# ==========================================================
+
+require_state_file() {
+
+    if [ ! -f "$MW_STATE_FILE" ]; then
+        echo "Deployment state file not found: $MW_STATE_FILE" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+# ==========================================================
+# Load Deployment State
+# ==========================================================
+
+load_state() {
+
+    local log_file="$1"
+
+    local start_time
+
+    start_time="$(runtime_now)"
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "STATE_LOADING_STARTED" \
+        "Loading deployment state."
+
+    require_state_file || {
+
+        deployment_event \
+            "$log_file" \
+            "ERROR" \
+            "STATE_FILE_NOT_FOUND" \
+            "Deployment state file not found."
+
+        record_duration \
+            "state_load_duration_seconds" \
+            "$start_time"
+
+        record_operation_failure \
+            "state_load_failure_total"
+
+        return 1
+    }
+
+    MW_STATE_CURRENT_API=$(
+        jq -r '.current.api' "$MW_STATE_FILE"
+    )
+
+    MW_STATE_CURRENT_WORKER=$(
+        jq -r '.current.worker' "$MW_STATE_FILE"
+    )
+
+    MW_STATE_PREVIOUS_API=$(
+        jq -r '.previous.api' "$MW_STATE_FILE"
+    )
+
+    MW_STATE_PREVIOUS_WORKER=$(
+        jq -r '.previous.worker' "$MW_STATE_FILE"
+    )
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "STATE_LOADED" \
+        "Deployment state loaded successfully."
+
+    record_duration \
+        "state_load_duration_seconds" \
+        "$start_time"
+
+    record_operation_success \
+        "state_load_success_total"
+
+    return 0
+}
+
+# ==========================================================
+# Current Version
+# ==========================================================
+
+get_current_api() {
+
+    printf '%s\n' "$MW_STATE_CURRENT_API"
+
+}
+
+get_current_worker() {
+
+    printf '%s\n' "$MW_STATE_CURRENT_WORKER"
+
+}
+
+# ==========================================================
+# Previous Version
+# ==========================================================
+
+get_previous_api() {
+
+    printf '%s\n' "$MW_STATE_PREVIOUS_API"
+
+}
+
+get_previous_worker() {
+
+    printf '%s\n' "$MW_STATE_PREVIOUS_WORKER"
+
+}
+
+# ==========================================================
+# Update Deployment State
+# ==========================================================
+
+update_state() {
+
+    local log_file="$1"
+    local new_api="$2"
+    local new_worker="$3"
+
+    local start_time
+
+    start_time="$(runtime_now)"
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "STATE_UPDATE_STARTED" \
+        "Updating deployment state."
+
+    require_state_file || {
+
+        deployment_event \
+            "$log_file" \
+            "ERROR" \
+            "STATE_FILE_NOT_FOUND" \
+            "Deployment state file not found."
+
+        record_duration \
+            "state_update_duration_seconds" \
+            "$start_time"
+
+        record_operation_failure \
+            "state_update_failure_total"
+
+        return 1
+    }
+
+    jq \
+        --arg previous_api "$MW_STATE_CURRENT_API" \
+        --arg previous_worker "$MW_STATE_CURRENT_WORKER" \
+        --arg current_api "$new_api" \
+        --arg current_worker "$new_worker" \
+        '
+        .previous.api = $previous_api |
+        .previous.worker = $previous_worker |
+        .current.api = $current_api |
+        .current.worker = $current_worker
+        ' \
+        "$MW_STATE_FILE" > "${MW_STATE_FILE}.tmp"
+
+    mv "${MW_STATE_FILE}.tmp" "$MW_STATE_FILE"
+
+    load_state "$log_file" || {
+
+        record_duration \
+            "state_update_duration_seconds" \
+            "$start_time"
+
+        record_operation_failure \
+            "state_update_failure_total"
+
+        return 1
+
+    }
+    deployment_event \
+        "$log_file" \
+        "SUCCESS" \
+        "STATE_UPDATED" \
+        "Deployment state updated successfully."
+
+    record_duration \
+        "state_update_duration_seconds" \
+        "$start_time"
+
+    record_operation_success \
+        "state_update_success_total"
+
+    return 0
+}

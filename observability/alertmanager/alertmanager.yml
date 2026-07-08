@@ -1,0 +1,108 @@
+global:
+
+  resolve_timeout: 5m
+
+route:
+
+  receiver: default
+
+  group_by:
+    - environment
+    - category
+    - service
+
+  group_wait: 30s
+
+  group_interval: 5m
+
+  repeat_interval: 4h
+
+  routes:
+
+    # ======================================================
+    # Critical Alerts
+    # ======================================================
+    - matchers:
+        - severity="critical"
+
+      receiver: critical
+
+      continue: false
+
+    # ======================================================
+    # Warning Alerts
+    # ======================================================
+    - matchers:
+        - severity="warning"
+
+      receiver: warning
+
+      continue: false
+
+    # ======================================================
+    # Informational Alerts
+    # ======================================================
+    - matchers:
+        - severity="info"
+
+      receiver: info
+
+      continue: false
+
+receivers:
+
+  # ========================================================
+  # Default Receiver
+  # ========================================================
+  - name: default
+
+  # ========================================================
+  # Critical Receiver
+  # ========================================================
+  - name: critical
+
+    # webhook_configs:
+
+    #   - url: http://alert-webhook:8080/critical
+
+    #     send_resolved: true
+
+  # ========================================================
+  # Warning Receiver
+  # ========================================================
+  - name: warning
+
+    # webhook_configs:
+
+    #   - url: http://alert-webhook:8080/warning
+
+    #     send_resolved: true
+
+  # ========================================================
+  # Informational Receiver
+  # ========================================================
+  - name: info
+
+    # webhook_configs:
+
+    #   - url: http://alert-webhook:8080/info
+
+    #     send_resolved: false
+
+inhibit_rules:
+
+  # ========================================================
+  # Suppress Warnings During Critical Incidents
+  # ========================================================
+  - source_matchers:
+      - severity="critical"
+
+    target_matchers:
+      - severity="warning"
+
+    equal:
+      - service
+      - environment
+
+templates:
+  - /etc/alertmanager/templates/*.tmpl

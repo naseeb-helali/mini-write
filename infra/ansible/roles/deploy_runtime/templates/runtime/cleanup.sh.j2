@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# ==========================================================
+# Mini-Write Deployment Runtime
+# Cleanup Module
+# ==========================================================
+
+cleanup_images() {
+
+    local log_file="$1"
+
+    local start_time
+    local status
+
+    start_time="$(runtime_now)"
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "CLEANUP_STARTED" \
+        "Starting Docker image cleanup."
+
+    docker image prune \
+        --filter "until=168h" \
+        -f
+
+    status=$?
+
+    record_duration \
+        "cleanup_duration_seconds" \
+        "$start_time"
+
+    if [ "$status" -ne 0 ]; then
+
+        deployment_event \
+            "$log_file" \
+            "WARNING" \
+            "CLEANUP_FAILED" \
+            "Docker image cleanup failed."
+
+        record_operation_failure \
+            "cleanup_failure_total"
+
+        return 1
+
+    fi
+
+    deployment_event \
+        "$log_file" \
+        "SUCCESS" \
+        "CLEANUP_COMPLETED" \
+        "Docker image cleanup completed successfully."
+
+    record_operation_success \
+        "cleanup_success_total"
+
+    return 0
+}

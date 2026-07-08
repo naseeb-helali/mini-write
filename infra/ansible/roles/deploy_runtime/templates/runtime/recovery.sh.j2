@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# ==========================================================
+# Mini-Write Deployment Runtime
+# Recovery Module
+# ==========================================================
+
+run_rollback() {
+
+    local log_file="$1"
+
+    local start_time
+    local status
+
+    start_time="$(runtime_now)"
+
+    "{{ deploy_root }}/scripts/rollback.sh"
+
+    status=$?
+
+    record_duration \
+        "rollback_duration_seconds" \
+        "$start_time"
+
+    if [ "$status" -eq 0 ]; then
+
+        record_operation_success \
+            "rollback_success_total"
+
+    else
+
+        record_operation_failure \
+            "rollback_failure_total"
+
+    fi
+
+    return "$status"
+
+}
+
+handle_failed_deployment() {
+
+    local log_file="$1"
+
+    deployment_event \
+        "$log_file" \
+        "WARNING" \
+        "ROLLBACK_STARTED" \
+        "Deployment failed. Starting rollback."
+
+    run_rollback "$log_file"
+
+    if [ $? -ne 0 ]; then
+
+        deployment_event \
+            "$log_file" \
+            "ERROR" \
+            "ROLLBACK_FAILED" \
+            "Rollback execution failed."
+
+        return 1
+
+    fi
+
+    deployment_event \
+        "$log_file" \
+        "SUCCESS" \
+        "ROLLBACK_COMPLETED" \
+        "Rollback completed successfully."
+
+    return 1
+}

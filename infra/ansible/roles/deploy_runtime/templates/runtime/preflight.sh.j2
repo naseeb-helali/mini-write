@@ -1,0 +1,215 @@
+#!/bin/bash
+
+# ==========================================================
+# Mini-Write Deployment Runtime
+# Preflight Module
+# ==========================================================
+
+MW_DEPLOY_LOCK="/var/lock/deploy.lock"
+
+acquire_deployment_lock() {
+
+    if [ -f "$MW_DEPLOY_LOCK" ]; then
+        echo "❌ Deployment locked"
+        return 1
+    fi
+
+    touch "$MW_DEPLOY_LOCK"
+
+    trap "rm -f \"$MW_DEPLOY_LOCK\"" EXIT
+
+    return 0
+}
+
+release_deployment_lock() {
+
+    rm -f "$MW_DEPLOY_LOCK"
+
+    return 0
+}
+
+validate_deployment_arguments() {
+
+    local api_image="$1"
+    local worker_image="$2"
+
+    if [ -z "$api_image" ] || [ -z "$worker_image" ]; then
+        echo "❌ Missing deployment image arguments"
+        return 1
+    fi
+
+    return 0
+}
+
+validate_environment_file() {
+
+    local env_file="$1"
+
+    if [ ! -f "$env_file" ]; then
+        echo "❌ Missing environment file: $env_file"
+        return 1
+    fi
+
+    return 0
+}
+
+validate_required_environment_variables() {
+
+    local env_file="$1"
+
+    local required_vars=(
+        POSTGRES_USER
+        POSTGRES_PASSWORD
+        POSTGRES_DB
+        REDIS_PASSWORD
+        JWT_SECRET
+    )
+
+    for var in "${required_vars[@]}"; do
+
+        if ! grep -q "^${var}=" "$env_file"; then
+            echo "❌ Missing required variable: ${var}"
+            return 1
+        fi
+
+    done
+
+    return 0
+}
+
+run_preflight() {
+
+    local log_file="$1"
+    local api_image="$2"
+    local worker_image="$3"
+    local env_file="$4"
+
+    local start_time
+    local duration
+
+    start_time="$(runtime_now)"
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "PRECHECK_STARTED" \
+        "Starting deployment preflight validation."
+
+    acquire_deployment_lock || {
+
+        deployment_event \
+            "$log_file" \
+            "ERROR" \
+            "DEPLOYMENT_LOCK_FAILED" \
+            "Failed to acquire deployment lock."
+
+        record_duration \
+            "preflight_duration_seconds" \
+            "$start_time"
+
+        record_operation_failure \
+            "preflight_failure_total"
+
+        return 1
+    }
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "DEPLOYMENT_LOCK_ACQUIRED" \
+        "Deployment lock acquired."
+
+    validate_deployment_arguments \
+        "$api_image" \
+        "$worker_image" || {
+
+        deployment_event \
+            "$log_file" \
+            "ERROR" \
+            "ARGUMENTS_VALIDATION_FAILED" \
+            "Deployment arguments validation failed."
+
+
+        record_duration \
+            "preflight_duration_seconds" \
+            "$start_time"
+
+        record_operation_failure \
+            "preflight_failure_total"
+
+        return 1
+    }
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "ARGUMENTS_VALIDATED" \
+        "Deployment arguments validated."
+
+    validate_environment_file \
+        "$env_file" || {
+
+        deployment_event \
+            "$log_file" \
+            "ERROR" \
+            "ENVIRONMENT_VALIDATION_FAILED" \
+            "Environment file validation failed."
+
+
+        record_duration \
+            "preflight_duration_seconds" \
+            "$start_time"
+
+        record_operation_failure \
+            "preflight_failure_total"
+
+        return 1
+    }
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "ENVIRONMENT_VALIDATED" \
+        "Environment file validated."
+
+    validate_required_environment_variables \
+        "$env_file" || {
+
+        deployment_event \
+            "$log_file" \
+            "ERROR" \
+            "REQUIRED_VARIABLES_VALIDATION_FAILED" \
+            "Required environment variables validation failed."
+
+
+        record_duration \
+            "preflight_duration_seconds" \
+            "$start_time"
+
+        record_operation_failure \
+            "preflight_failure_total"
+
+        return 1
+    }
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "REQUIRED_VARIABLES_VALIDATED" \
+        "Required environment variables validated."
+
+    deployment_event \
+        "$log_file" \
+        "SUCCESS" \
+        "PRECHECK_COMPLETED" \
+        "Deployment preflight completed successfully."
+
+        record_duration \
+            "preflight_duration_seconds" \
+            "$start_time"
+
+        record_operation_success \
+            "preflight_success_total"
+
+    return 0
+}

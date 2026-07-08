@@ -1,0 +1,150 @@
+#!/bin/bash
+
+# ==========================================================
+# Mini-Write Deployment Runtime
+# Deployment Executor Module
+# ==========================================================
+
+run_image_pull() {
+
+    local compose_file="$1"
+    local env_file="$2"
+
+    local start_time
+
+    start_time="$(runtime_now)"
+
+    docker compose \
+        -p mini-write \
+        --env-file "$env_file" \
+        -f "$compose_file" \
+        pull
+
+    local status=$?
+
+    record_duration \
+        "image_pull_duration_seconds" \
+        "$start_time"
+
+    if [ "$status" -eq 0 ]; then
+
+        record_operation_success \
+            "image_pull_success_total"
+
+    else
+
+        record_operation_failure \
+            "image_pull_failure_total"
+
+    fi
+
+    return "$status"
+
+}
+
+run_compose_deployment() {
+
+    local compose_file="$1"
+    local env_file="$2"
+
+    local start_time
+
+    start_time="$(runtime_now)"
+
+    docker compose \
+        -p mini-write \
+        --env-file "$env_file" \
+        -f "$compose_file" \
+        up -d --remove-orphans
+
+    local status=$?
+
+    record_duration \
+        "compose_deployment_duration_seconds" \
+        "$start_time"
+
+    if [ "$status" -eq 0 ]; then
+
+        record_operation_success \
+            "compose_deployment_success_total"
+
+    else
+
+        record_operation_failure \
+            "compose_deployment_failure_total"
+
+    fi
+
+    return "$status"
+}
+
+run_deployment() {
+
+    local log_file="$1"
+    local compose_file="$2"
+    local env_file="$3"
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "DEPLOYMENT_EXECUTION_STARTED" \
+        "Starting deployment execution."
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "IMAGE_PULL_STARTED" \
+        "Pulling container images."
+
+    run_image_pull \
+        "$compose_file" \
+        "$env_file" || {
+
+        deployment_event \
+            "$log_file" \
+            "ERROR" \
+            "IMAGE_PULL_FAILED" \
+            "Failed to pull container images."
+
+        return 1
+    }
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "IMAGE_PULL_COMPLETED" \
+        "Container images pulled successfully."
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "COMPOSE_DEPLOYMENT_STARTED" \
+        "Starting Docker Compose deployment."
+
+    run_compose_deployment \
+        "$compose_file" \
+        "$env_file" || {
+
+        deployment_event \
+            "$log_file" \
+            "ERROR" \
+            "COMPOSE_DEPLOYMENT_FAILED" \
+            "Docker Compose deployment failed."
+
+        return 1
+    }
+
+    deployment_event \
+        "$log_file" \
+        "INFO" \
+        "COMPOSE_DEPLOYMENT_COMPLETED" \
+        "Docker Compose deployment completed successfully."
+
+    deployment_event \
+        "$log_file" \
+        "SUCCESS" \
+        "DEPLOYMENT_EXECUTION_COMPLETED" \
+        "Deployment execution completed successfully."
+
+    return 0
+}

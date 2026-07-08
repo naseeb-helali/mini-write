@@ -17,6 +17,18 @@ deploy_scripts:
   - deploy.sh
   - rollback.sh
 
+runtime_subdirectory: runtime
+
+deploy_runtime_modules:
+  - preflight.sh
+  - executor.sh
+  - verifier.sh
+  - recovery.sh
+  - state.sh
+  - telemetry.sh
+  - cleanup.sh
+  - metrics.sh
+
 deploy_runtime_directories:
   - compose
   - scripts

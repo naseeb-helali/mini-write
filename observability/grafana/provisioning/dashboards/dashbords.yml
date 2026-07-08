@@ -1,0 +1,93 @@
+apiVersion: 1
+
+providers:
+
+  - name: mini-write-system
+
+    orgId: 1
+
+    folder: System
+
+    type: file
+
+    disableDeletion: true
+
+    updateIntervalSeconds: 30
+
+    allowUiUpdates: false
+
+    options:
+
+      path: /var/lib/grafana/dashboards/system
+
+  - name: mini-write-application
+
+    orgId: 1
+
+    folder: Application
+
+    type: file
+
+    disableDeletion: true
+
+    updateIntervalSeconds: 30
+
+    allowUiUpdates: false
+
+    options:
+
+      path: /var/lib/grafana/dashboards/application
+
+  - name: mini-write-queue
+
+    orgId: 1
+
+    folder: Queue
+
+    type: file
+
+    disableDeletion: true
+
+    updateIntervalSeconds: 30
+
+    allowUiUpdates: false
+
+    options:
+
+      path: /var/lib/grafana/dashboards/queue
+
+  - name: mini-write-deployment
+
+    orgId: 1
+
+    folder: Deployment
+
+    type: file
+
+    disableDeletion: true
+
+    updateIntervalSeconds: 30
+
+    allowUiUpdates: false
+
+    options:
+
+      path: /var/lib/grafana/dashboards/deployment
+
+  - name: mini-write-incidents
+
+    orgId: 1
+
+    folder: Incidents
+
+    type: file
+
+    disableDeletion: true
+
+    updateIntervalSeconds: 30
+
+    allowUiUpdates: false
+
+    options:
+
+      path: /var/lib/grafana/dashboards/incidents
