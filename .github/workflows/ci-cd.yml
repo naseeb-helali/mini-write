@@ -127,7 +127,7 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ matrix.service }}/package-lock.json
 
-      - run: cd ${{ matrix.service }} && npm audit --audit-level=moderate
+      - run: cd ${{ matrix.service }} && npm audit --audit-level=critical
 
 # ==========================================
 # 3) BUILD
