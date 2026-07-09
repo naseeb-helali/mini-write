@@ -1,4 +1,4 @@
-name: Mini-Write Pro CI/CD
+name: Mini-Write CI/CD
 
 on:
   push:
