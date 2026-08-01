@@ -1,0 +1,113 @@
+groups:
+
+- name: api-health
+
+  interval: 30s
+
+  rules:
+
+  # ========================================================
+  # 01-MWAPIDown
+  # ========================================================
+    - alert: MWAPIDown
+
+      expr: up{job="api"} == 0
+
+      for: 2m
+
+      labels:
+        severity: critical
+        category: application
+        service: api
+        environment: production
+
+      annotations:
+        summary: "API service is unavailable"
+
+        description: >
+          Prometheus has been unable to scrape the API metrics endpoint
+          for more than two minutes.
+
+        impact: >
+          The HTTP API is unavailable.
+          Users cannot access application functionality.
+
+        action: >
+          Verify the API container, Docker networking,
+          reverse proxy configuration,
+          and application logs.
+
+  # ========================================================
+  # 02-MWHighAPIErrorRate
+  # ========================================================
+    - alert: MWHighAPIErrorRate
+
+      expr: |
+        (
+          sum(rate(mw_api_http_errors_total[5m]))
+          /
+          sum(rate(mw_api_http_requests_total[5m]))
+        ) * 100 > 5
+
+      for: 5m
+
+      labels:
+        severity: warning
+        category: application
+        service: api
+        environment: production
+
+      annotations:
+        summary: "High API error rate"
+
+        description: >
+          More than five percent of API requests have failed
+          during the last five minutes.
+
+        impact: >
+          Users are experiencing request failures.
+
+        action: >
+          Review API logs in Loki,
+          inspect recent deployments,
+          and verify database and Redis connectivity.
+
+  # ========================================================
+  # 03-MWHighAPILatency
+  # ========================================================
+    - alert: MWHighAPILatency
+
+      expr: |
+        histogram_quantile(
+          0.95,
+          sum by (le)
+          (
+            rate(
+              mw_api_http_request_duration_seconds_bucket[5m]
+            )
+          )
+        ) > 1
+
+      for: 5m
+
+      labels:
+        severity: warning
+        category: application
+        service: api
+        environment: production
+
+      annotations:
+        summary: "High API latency"
+
+        description: >
+          The 95th percentile request latency has exceeded
+          one second for more than five minutes.
+
+        impact: >
+          Users are experiencing slow API responses.
+
+        action: >
+          Inspect application performance,
+          database latency,
+          Redis connectivity,
+          and host resource utilization.

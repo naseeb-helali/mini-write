@@ -1,0 +1,220 @@
+groups:
+
+- name: worker-health
+
+  interval: 30s
+
+  rules:
+
+  # ========================================================
+  # 01-MWWorkerDown
+  # ========================================================
+    - alert: MWWorkerDown
+
+      expr: up{job="worker"} == 0
+
+      for: 2m
+
+      labels:
+        severity: critical
+        category: application
+        service: worker
+        environment: production
+
+      annotations:
+        summary: "Worker service is unavailable"
+
+        description: >
+          Prometheus has been unable to scrape the Worker metrics endpoint
+          for more than two minutes.
+
+        impact: >
+          Background jobs are no longer being processed.
+
+        action: >
+          Verify the Worker container, Redis connectivity,
+          and application logs.
+
+  # ========================================================
+  # 02-MWQueueBacklogHigh
+  # ========================================================
+    - alert: MWQueueBacklogHigh
+
+      expr: sum(mw_worker_queue_depth) > 10
+
+      for: 10m
+
+      labels:
+        severity: warning
+        category: queue
+        service: worker
+        environment: production
+
+      annotations:
+        summary: "Queue backlog is growing"
+
+        description: >
+          Queue depth has remained above ten waiting jobs
+          for more than ten minutes.
+
+        impact: >
+          Jobs are arriving faster than they are being processed.
+
+        action: >
+          Inspect Worker throughput,
+          Redis health,
+          and processing latency.
+
+  # ========================================================
+  # 03-MWHighJobFailureRate
+  # ========================================================
+    - alert: MWHighJobFailureRate
+
+      expr: |
+        (
+          sum(rate(mw_worker_job_failures_total[5m]))
+          /
+          sum(rate(mw_worker_jobs_processed_total[5m]))
+        ) * 100 > 10
+
+      for: 5m
+
+      labels:
+        severity: warning
+        category: processing
+        service: worker
+        environment: production
+
+      annotations:
+        summary: "High worker job failure rate"
+
+        description: >
+          More than ten percent of processed jobs have failed
+          during the last five minutes.
+
+        impact: >
+          Background processing reliability is degraded.
+
+        action: >
+          Inspect Worker logs,
+          image processing errors,
+          database connectivity,
+          and object storage operations.
+
+  # ========================================================
+  # 04-MWHighJobLatency
+  # ========================================================
+    - alert: MWHighJobLatency
+
+      expr: |
+        histogram_quantile(
+          0.95,
+          sum by (le)
+          (
+            rate(
+              mw_worker_job_duration_seconds_bucket[5m]
+            )
+          )
+        ) > 5
+
+      for: 5m
+
+      labels:
+        severity: warning
+        category: processing
+        service: worker
+        environment: production
+
+      annotations:
+        summary: "High worker processing latency"
+
+        description: >
+          The 95th percentile job duration has exceeded
+          five seconds.
+
+        impact: >
+          Background processing is slower than expected.
+
+        action: >
+          Inspect CPU usage,
+          storage latency,
+          database latency,
+          and image processing performance.
+
+  # ========================================================
+  # 05-MWHighStorageLatency
+  # ========================================================
+    - alert: MWHighStorageLatency
+
+      expr: |
+        histogram_quantile(
+          0.95,
+          sum by (le)
+          (
+            rate(
+              mw_worker_storage_duration_seconds_bucket[5m])
+          )
+        ) > 2
+
+      for: 10m
+
+      labels:
+        severity: warning
+        category: dependency
+        service: storage
+        environment: production
+
+      annotations:
+        summary: "High object storage latency"
+
+        description: >
+          Storage operations are taking longer than expected.
+
+        impact: >
+          Image downloads and uploads are slowing down
+          Worker processing.
+
+        action: >
+          Verify MinIO health,
+          network latency,
+          and disk performance.
+
+  # ========================================================
+  # 06-MWHighDatabaseLatency
+  # ========================================================
+    - alert: MWHighDatabaseLatency
+
+      expr: |
+        histogram_quantile(
+          0.95,
+          sum by (le)
+          (
+            rate(
+              mw_worker_database_duration_seconds_bucket[5m])
+          )
+        ) > 0.5
+
+      for: 10m
+
+      labels:
+        severity: warning
+        category: dependency
+        service: database
+        environment: production
+
+      annotations:
+        summary: "High database latency"
+
+        description: >
+          Database operations are slower than expected.
+
+        impact: >
+          Job completion time will increase.
+
+        action: >
+          Inspect PostgreSQL health,
+          locks,
+          slow queries,
+          and disk utilization.
+
+

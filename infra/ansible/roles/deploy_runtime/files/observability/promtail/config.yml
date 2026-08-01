@@ -1,0 +1,113 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/promtail-positions.yaml
+
+clients:
+
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+
+  # ==========================================================
+  # Docker Containers Logs
+  # ==========================================================
+  - job_name: docker-containers
+
+    static_configs:
+
+      - targets:
+          - localhost
+
+        labels:
+          job: docker
+
+          environment: staging
+
+          __path__: /var/lib/docker/containers/*/*-json.log
+
+    pipeline_stages:
+
+      # ------------------------------------------------------
+      # Parse Docker JSON
+      # ------------------------------------------------------
+      - docker: {}
+
+      # ------------------------------------------------------
+      # Extract JSON Fields
+      # ------------------------------------------------------
+      - json:
+          expressions:
+            level: level
+            service: service
+            correlation_id: correlation_id
+            job_id: job_id
+            deployment_version: deployment_version
+
+      # ------------------------------------------------------
+      # Promote Safe Labels
+      # ------------------------------------------------------
+      - labels:
+          level:
+          service:
+
+      # ------------------------------------------------------
+      # Normalize Timestamp
+      # ------------------------------------------------------
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+      # ------------------------------------------------------
+      # Remove High Cardinality Fields
+      # ------------------------------------------------------
+      - labeldrop:
+          - correlation_id
+          - job_id
+          - deployment_version
+
+  # ==========================================================
+  # Deployment Logs
+  # ==========================================================
+  - job_name: deployment
+
+    static_configs:
+
+      - targets:
+          - localhost
+
+        labels:
+          service: deployment
+
+          environment: staging
+
+          job: deployment
+
+          __path__: /opt/deploy/logs/*.log
+
+    pipeline_stages:
+
+          # ------------------------------------------------------
+          # Parse Structured Deployment Log Format
+          # Format: [TIMESTAMP] [LEVEL] [EVENT] MESSAGE
+          # Example: [2026-07-31T17:33:50Z] [INFO] [GENERAL] Starting deployment
+          # ------------------------------------------------------
+          - regex:
+              expression: '^\s*\[(?P<log_timestamp>[^\]]+)\]\s+\[(?P<level>[^\]]+)\]\s+\[(?P<event>[^\]]+)\]\s+(?P<message>.*)$'
+
+          # ------------------------------------------------------
+          # Promote Extracted Fields to Labels
+          # ------------------------------------------------------
+          - labels:
+              level:
+              event:
+
+          # ------------------------------------------------------
+          # Normalize Log Timestamp
+          # ------------------------------------------------------
+          - timestamp:
+              source: log_timestamp
+              format: RFC3339
+          

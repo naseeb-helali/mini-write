@@ -43,12 +43,68 @@ jobs:
           docker compose version
           docker ps
 
-      - name: Validate deploy runtime
+      - name: Validate complete deploy runtime structure (IaC Artifacts)
         run: |
+          echo "=== 1. Checking Deploy Root & Main Directories ==="
           ls -la /opt/deploy
-          ls -la /opt/deploy/logs
-          ls -la /opt/deploy/state
-          ls -la /opt/deploy/env
+          test -d /opt/deploy/compose
+          test -d /opt/deploy/scripts
+          test -d /opt/deploy/state
+          test -d /opt/deploy/logs
+          test -d /opt/deploy/env
+          test -d /opt/deploy/proxy
+
+          echo "=== 2. Checking Docker Compose & Nginx Proxy Config ==="
+          ls -la /opt/deploy/compose/docker-compose.staging.yml
+          ls -la /opt/deploy/proxy/nginx.conf
+
+          echo "=== 3. Checking Core Deployment Scripts ==="
+          ls -la /opt/deploy/scripts/deploy.sh
+          ls -la /opt/deploy/scripts/rollback.sh
+          [ -x /opt/deploy/scripts/deploy.sh ]
+          [ -x /opt/deploy/scripts/rollback.sh ]
+
+          echo "=== 4. Checking Runtime Modules ==="
+          ls -la /opt/deploy/scripts/runtime/
+          for mod in preflight.sh executor.sh verifier.sh recovery.sh state.sh telemetry.sh cleanup.sh metrics.sh; do
+            ls -la "/opt/deploy/scripts/runtime/$mod"
+            [ -x "/opt/deploy/scripts/runtime/$mod" ]
+          done
+
+          echo "=== 5. Checking Complete Observability Structure ==="
+          ls -la /opt/deploy/compose/observability
+          
+          # Alertmanager
+          ls -la /opt/deploy/compose/observability/alertmanager/alertmanager.yml
+
+          # Exporters
+          test -d /opt/deploy/compose/observability/exporters/cadvisor
+          test -d /opt/deploy/compose/observability/exporters/node-exporter
+          test -d /opt/deploy/compose/observability/exporters/postgres-exporter
+          test -d /opt/deploy/compose/observability/exporters/redis-exporter
+
+          # Grafana Dashboards & Provisioning
+          ls -la /opt/deploy/compose/observability/grafana/dashboards/application/application-health.json
+          ls -la /opt/deploy/compose/observability/grafana/dashboards/deployment/deployment-operations.json
+          ls -la /opt/deploy/compose/observability/grafana/dashboards/queue/queue-operations.json
+          ls -la /opt/deploy/compose/observability/grafana/dashboards/system/system-overview.json
+          ls -la /opt/deploy/compose/observability/grafana/provisioning/alerting/contact-points.yml
+          ls -la /opt/deploy/compose/observability/grafana/provisioning/dashboards/dashbords.yml
+          ls -la /opt/deploy/compose/observability/grafana/provisioning/datasources/datasources.yml
+
+          # Loki & Promtail configs
+          ls -la /opt/deploy/compose/observability/loki/config.yml
+          ls -la /opt/deploy/compose/observability/promtail/config.yml
+
+          # Prometheus config & rules
+          ls -la /opt/deploy/compose/observability/prometheus/prometheus.yml
+          ls -la /opt/deploy/compose/observability/prometheus/rules/01-infrastructure.yml
+          ls -la /opt/deploy/compose/observability/prometheus/rules/02-api.yml
+          ls -la /opt/deploy/compose/observability/prometheus/rules/03-worker.yml
+
+          echo "=== 6. Checking State and Environment Files ==="
+          ls -la /opt/deploy/state/deployment_state.json
+          ls -la /opt/deploy/env/.env.staging
 
       - name: Validate write access
         run: |
@@ -57,7 +113,7 @@ jobs:
 
       - name: Success confirmation
         run: |
-          echo "Runner validation completed successfully"
+          echo "Complete runner and IaC validation completed successfully"
 
 
 # ==========================================
