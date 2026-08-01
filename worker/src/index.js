@@ -1,8 +1,46 @@
 const http = require('http');
 const { Worker, Queue } = require('bullmq');
-const redisConnection = require('./config/redis');
-const { processIdCard } = require('./processors/imageProcessor');
-const { register } = require('./observability/registry');
+
+const redisConnection = require(
+  './config/redis'
+);
+
+const { processIdCard } = require(
+  './processors/imageProcessor'
+);
+
+const runtimeBootstrap = require(
+  './runtime/middleware/runtimeBootstrap'
+);
+
+const runtimeGuard = require(
+  './runtime/middleware/runtimeGuard'
+);
+
+const runtimeOperationResolution = require(
+  './runtime/middleware/runtimeOperationResolution'
+);
+
+const runtimeStateActivation = require(
+  './runtime/middleware/runtimeStateActivation'
+);
+
+const runtimeFailureHandler = require(
+  './runtime/middleware/runtimeFailureHandler'
+);
+
+const { OPERATIONS, OPERATION_CATEGORIES } = require(
+  './runtime/context/operationContext'
+);
+
+const { printRuntimeSnapshot, printRuntimeTransition, printRuntimeCompletion } = require(
+  './runtime/testing/runtimeValidationHarness'
+);
+
+const { register } = require(
+  './observability/registry'
+);
+
 const {
   jobsProcessedTotal,
   jobFailuresTotal,
@@ -14,17 +52,19 @@ const {
 
   jobDuration
 } = require('./observability/metrics');
+
 const logger = require(
   './observability/logger'
 );
+
 const EVENTS = require(
   './observability/events'
 );
-const {
-  buildJobContext
-} = require(
+
+const { buildJobContext } = require(
   './observability/logContext'
 );
+
 // The Worker Instance
 // Listens to the 'image-processing' queue and executes jobs.
 
@@ -41,7 +81,167 @@ const worker = new Worker(
   'image-processing',
 
   async (job) => {
-    return processIdCard(job);
+
+    const runtimeEnvelope =
+      runtimeBootstrap(job);
+
+    const runtime =
+      runtimeEnvelope.runtime;
+
+    const runtimeIntegrity =
+      runtimeEnvelope.runtimeIntegrity;
+
+    //Temporary Validation
+      printRuntimeSnapshot(
+        'BOOTSTRAP',
+        runtime,
+        {
+          jobId: job.id,
+          queue: job.queueName
+        }
+      );
+    //End Validation
+
+    runtimeGuard(
+      runtime,
+      runtimeIntegrity
+    );
+
+    //Temporary Validation
+    printRuntimeSnapshot(
+      'GUARD',
+      runtime
+    );
+    //End Validation
+
+    runtimeOperationResolution(
+      runtime,
+      {
+        id:
+          OPERATIONS.PROCESS_ID_CARD,
+
+        category:
+          OPERATION_CATEGORIES.BACKGROUND,
+
+        characteristics: {
+
+          requiresDatabase: true,
+
+          requiresStorage: true,
+
+          asynchronous: true
+
+        }
+
+      }
+    );
+
+    //Temporary Validation
+    printRuntimeSnapshot(
+      'OPERATION_RESOLVED',
+      runtime
+    );
+    //End Validation
+
+    runtimeStateActivation(
+      runtime
+    );
+
+    //Temporary Validation
+    printRuntimeTransition(
+      'active',
+      'business'
+    );
+
+    printRuntimeSnapshot(
+      'BEFORE_BUSINESS',
+      runtime
+    );
+    //End Validation
+
+    try {
+
+      const result =
+        await processIdCard(job);
+
+      printRuntimeSnapshot(
+        'AFTER_BUSINESS',
+        runtime,
+        {
+          result
+        }
+      );
+
+      runtime.complete();
+
+      printRuntimeTransition(
+        'business',
+        'completed'
+      );
+
+      printRuntimeCompletion(
+        runtime,
+        result
+      );
+
+      return result;
+
+    } catch (error) {
+
+      runtimeFailureHandler(
+        runtime,
+        error
+      );
+
+      printRuntimeTransition(
+        'failure',
+        'completed'
+      );
+
+      printRuntimeCompletion(
+        runtime,
+        {
+
+          error: {
+
+            name:
+              error.name,
+
+            message:
+              error.message
+
+          }
+
+        }
+
+      );
+
+      printRuntimeTransition(
+        'business',
+        'failure'
+      );
+
+      printRuntimeSnapshot(
+        'AFTER_FAILURE',
+        runtime,
+        {
+          error: {
+
+            name:
+              error.name,
+
+            message:
+              error.message
+
+          }
+
+        }
+      );
+
+      throw error;
+
+    }
+
   },
 
   {

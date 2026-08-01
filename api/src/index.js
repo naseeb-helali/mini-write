@@ -7,45 +7,75 @@ const { initStorage } = require('./services/storageService');
 const authRoutes = require('./routes/authRoutes');
 const { getSystemHealth } = require('./health/healthService');
 require('./config/redis');
-const requestContext = require('./middleware/requestContext');
+
+const runtimeBootstrap = require('./runtime/middleware/runtimeBootstrap');
+const runtimeGuard = require('./runtime/middleware/runtimeGuard');
+const runtimeFailureHandler = require('./runtime/middleware/runtimeFailureHandler');
+const runtimeOperationResolution = require('./runtime/middleware/runtimeOperationResolution');
+const runtimeStateActivation = require('./runtime/middleware/runtimeStateActivation');
+const {
+  OPERATIONS,
+  OPERATION_CATEGORIES
+} = require('./runtime/context/operationContext');
 
 const app = express();
 app.use(express.json());
-app.use(requestContext);
+
+app.use(runtimeBootstrap);
+app.use(runtimeGuard);
+
 app.use(metricsMiddleware);
 
 // 🔷 Routes & Health Probes (Defined outside for Testability)
 
 // Liveness Probe (Light and fast)
-app.get('/health/live', (req, res) => {
-  res.status(200).json({
-    status: "UP",
-    message: "Service is alive"
-  });
-});
-
-// Readiness Probe (Actual verification of services)
-app.get('/health/ready', async (req, res) => {
-  try {
-    const health = await getSystemHealth();
-
-    if (health.status === 'UP') {
-      return res.status(200).json(health);
-    } else {
-      return res.status(503).json(health);
-    }
-
-  } catch (err) {
-    return res.status(500).json({
-      status: "DOWN",
-      error: err.message
+app.get(
+  '/health/live',
+  runtimeOperationResolution({
+    id: OPERATIONS.HEALTH_LIVENESS,
+    category: OPERATION_CATEGORIES.HEALTH
+  }),
+  runtimeStateActivation,
+  (req, res) => {
+    res.status(200).json({
+      status: "UP",
+      message: "Service is alive"
     });
   }
-});
+);
+
+// Readiness Probe (Actual verification of services)
+app.get(
+  '/health/ready',
+  runtimeOperationResolution({
+    id: OPERATIONS.HEALTH_READINESS,
+    category: OPERATION_CATEGORIES.HEALTH,
+    characteristics: {
+      requiresDatabase: true
+    }
+  }),
+  runtimeStateActivation,
+  async (req, res) => {
+    try {
+      const health = await getSystemHealth();
+
+      if (health.status === 'UP') {
+        return res.status(200).json(health);
+      }
+
+      return res.status(503).json(health);
+    } catch (err) {
+      return res.status(500).json({
+        status: "DOWN",
+        error: err.message
+      });
+    }
+  }
+);
 
 // Mounting API Routes 
 app.use('/api/v1/auth', authRoutes);
-
+app.use(runtimeFailureHandler);
 // Bootstrapping function
 async function startServer() {
   try {

@@ -1,6 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+LOG="{{ deploy_root }}/logs/deploy.log"
 STATE="{{ deploy_root }}/state/deployment_state.json"
 
 # ==========================================================
@@ -9,7 +10,7 @@ STATE="{{ deploy_root }}/state/deployment_state.json"
 
 source "{{ deploy_root }}/scripts/runtime/state.sh"
 
-load_state
+load_state "$LOG"
 
 PREV_API="$(get_previous_api)"
 PREV_WORKER="$(get_previous_worker)"

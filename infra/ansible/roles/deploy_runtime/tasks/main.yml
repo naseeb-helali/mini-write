@@ -138,3 +138,66 @@
     mode: '0644'
   when: not deploy_log.stat.exists
 
+# ==========================================
+# Observability Platform Deployment Tasks
+# ==========================================
+
+- name: Create observability subdirectories inside compose directory
+  ansible.builtin.file:
+    path: "{{ deploy_root }}/compose/observability/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - alertmanager
+    - exporters/cadvisor
+    - exporters/node-exporter
+    - exporters/postgres-exporter
+    - exporters/redis-exporter
+    - grafana/dashboards/application
+    - grafana/dashboards/deployment
+    - grafana/dashboards/incidents
+    - grafana/dashboards/queue
+    - grafana/dashboards/system
+    - grafana/provisioning/alerting
+    - grafana/provisioning/dashboards
+    - grafana/provisioning/datasources
+    - loki
+    - prometheus/rules
+    - prometheus/targets
+    - promtail
+
+- name: Deploy observability configuration files and templates
+  ansible.builtin.template:
+    src: "observability/{{ item }}.j2"
+    dest: "{{ deploy_root }}/compose/observability/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - alertmanager/alertmanager.yml
+    - grafana/provisioning/alerting/contact-points.yml
+    - grafana/provisioning/dashboards/dashbords.yml
+    - grafana/provisioning/datasources/datasources.yml
+    - loki/config.yml
+    - prometheus/prometheus.yml
+    - promtail/config.yml
+  ignore_errors: true
+
+- name: Copy static observability configuration files (non-template)
+  ansible.builtin.copy:
+    src: "observability/{{ item }}"
+    dest: "{{ deploy_root }}/compose/observability/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - README.md
+    - grafana/dashboards/application/application-health.json
+    - grafana/dashboards/deployment/deployment-operations.json
+    - grafana/dashboards/queue/queue-operations.json
+    - grafana/dashboards/system/system-overview.json
+    - prometheus/rules/01-infrastructure.yml
+    - prometheus/rules/02-api.yml
+    - prometheus/rules/03-worker.yml

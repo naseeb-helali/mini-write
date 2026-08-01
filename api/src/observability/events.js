@@ -77,6 +77,31 @@ const EVENTS = {
 
   INTERNAL_ERROR:
     'internal_error'
+  ,
+
+  /*
+  |--------------------------------------------------------------------------
+  | Runtime Reliability
+  |--------------------------------------------------------------------------
+  */
+
+  RUNTIME_OPERATION_STARTED:
+    'runtime_operation_started',
+
+  RUNTIME_OPERATION_COMPLETED:
+    'runtime_operation_completed',
+
+  RUNTIME_OPERATION_RETRY:
+    'runtime_operation_retry',
+
+  RUNTIME_OPERATION_FAILED:
+    'runtime_operation_failed',
+
+  RUNTIME_FAILURE_HANDLED:
+    'runtime_failure_handled',
+
+  RUNTIME_COMPLETED:
+    'runtime_completed'
 };
 
 module.exports = EVENTS;

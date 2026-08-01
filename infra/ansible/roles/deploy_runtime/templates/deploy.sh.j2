@@ -181,6 +181,8 @@ if [ $? -ne 0 ]; then
         "$LOG" \
         "Failed to update deployment state."
 
+    handle_failed_deployment "$LOG"
+
     fail_deployment_session \
         "$deployment_start_time"
 

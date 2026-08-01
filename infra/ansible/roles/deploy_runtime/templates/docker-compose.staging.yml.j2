@@ -316,7 +316,7 @@ services:
     mem_limit: 512m
     cpus: "0.5"
 
-  # 12. Node-Exporte
+# 12. Node-Exporter
   node-exporter:
     image: prom/node-exporter:v1.8.2
 
@@ -326,11 +326,13 @@ services:
 
     command:
       - --path.rootfs=/host
+      - --collector.textfile.directory=/host/opt/deploy/metrics
 
     pid: host
 
     volumes:
       - /:/host:ro,rslave
+      - /opt/deploy/metrics:/host/opt/deploy/metrics:ro
 
     networks:
       - backend-network

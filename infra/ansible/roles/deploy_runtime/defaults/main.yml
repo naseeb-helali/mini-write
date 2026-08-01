@@ -8,6 +8,7 @@ deploy_directories:
   - logs
   - env
   - proxy
+  - observability
 
 deployment_state_file: "{{ deploy_root }}/state/deployment_state.json"
 
@@ -36,11 +37,13 @@ deploy_runtime_directories:
   - logs
   - env
   - proxy
+  - observability
 
 immutable_runtime_dirs:
   - compose
   - scripts
   - proxy
+  - observability
 
 mutable_runtime_dirs:
   - state

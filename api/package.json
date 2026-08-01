@@ -7,7 +7,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "lint": "echo 'No linting configured yet'",
-    "test": "jest --config jest.config.js --detectOpenHandles --coverage --coverageReporters='json-summary' 'text'"
+    "test": "jest --config jest.config.js --detectOpenHandles --coverage --coverageReporters=json-summary --coverageReporters=text"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

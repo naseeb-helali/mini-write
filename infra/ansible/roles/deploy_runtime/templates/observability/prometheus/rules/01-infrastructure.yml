@@ -1,0 +1,147 @@
+groups:
+
+  - name: infrastructure-health
+
+    interval: 30s
+
+    rules:
+
+  # ========================================================
+  # 01-MWNodeExporterDown
+  # ========================================================
+      - alert: MWNodeExporterDown
+
+        expr: up{job="node"} == 0
+
+        for: 2m
+
+        labels:
+          severity: critical
+          category: infrastructure
+          service: host
+          environment: production
+
+        annotations:
+          summary: "Node Exporter is unreachable"
+
+          description: >
+            Prometheus has been unable to scrape the Node Exporter
+            target for more than 2 minutes.
+
+          impact: >
+            Infrastructure health metrics are no longer being collected.
+            This may indicate a host outage, Docker networking issue,
+            or Node Exporter failure.
+
+          action: >
+            Verify the VM is running, confirm the Node Exporter container
+            is healthy, check Docker networking, and verify the
+            Prometheus scrape target.
+
+  # ========================================================
+  # 02-MWHighCPUUsage
+  # ========================================================
+      - alert: MWHighCPUUsage
+
+        expr: |
+          (
+            100 -
+            (
+              avg by(instance)
+              (
+                rate(node_cpu_seconds_total{mode="idle"}[5m])
+              ) * 100
+            )
+          ) > 90
+
+        for: 10m
+
+        labels:
+          severity: warning
+          category: infrastructure
+          service: host
+          environment: production
+
+        annotations:
+          summary: "High CPU utilization"
+
+          description: >
+            CPU utilization has remained above 90% for at least ten minutes.
+
+          impact: >
+            Sustained CPU saturation may delay request processing and background jobs.
+
+          action: >
+            Inspect running processes, container resource usage, and recent workload changes.
+
+  # ========================================================
+  # 03-MWHighMemoryUsage
+  # ========================================================
+      - alert: MWHighMemoryUsage
+
+        expr: |
+          (
+            (
+              node_memory_MemTotal_bytes
+              -
+              node_memory_MemAvailable_bytes
+            )
+            /
+            node_memory_MemTotal_bytes
+          ) * 100 > 90
+
+        for: 10m
+
+        labels:
+          severity: warning
+          category: infrastructure
+          service: host
+          environment: production
+
+        annotations:
+          summary: "High memory utilization"
+
+          description: >
+            Host memory usage has remained above 90% for at least ten minutes.
+
+          impact: >
+            High memory pressure increases the risk of swapping or OOM events.
+
+          action: >
+            Check memory consumption, container limits, and potential memory leaks.
+
+  # ========================================================
+  # 04-MWLowDiskSpace
+  # ========================================================
+      - alert: MWLowDiskSpace
+
+        expr: |
+          (
+            node_filesystem_avail_bytes{
+              fstype!~"tmpfs|overlay|squashfs|ramfs"
+            }
+            /
+            node_filesystem_size_bytes{
+              fstype!~"tmpfs|overlay|squashfs|ramfs"
+            }
+          ) * 100 < 10
+
+        for: 10m
+
+        labels:
+          severity: critical
+          category: infrastructure
+          service: host
+          environment: production
+
+        annotations:
+          summary: "Low disk space"
+
+          description: >
+            Less than 10% disk space is available on a persistent filesystem.
+
+          impact: >
+            Low disk space may prevent logging, database writes, or future deployments.
+
+          action: >
+            Identify large files, clean unused Docker resources, or expand disk capacity.
