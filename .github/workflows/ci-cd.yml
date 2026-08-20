@@ -276,6 +276,8 @@ jobs:
           WORKER_RETRY_LIMIT=3
           WORKER_CONCURRENCY=2
           QUEUE_NAME=document_processing
+
+          RUNTIME_VALIDATION_ENABLED=true
           EOF
 
       # =========================

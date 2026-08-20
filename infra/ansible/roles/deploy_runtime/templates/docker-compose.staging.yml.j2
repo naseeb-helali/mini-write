@@ -398,7 +398,8 @@ services:
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
 
-    env_file: .env
+    env_file:
+      - {{ deploy_root }}/env/.env.staging
 
     depends_on:
       postgres:
