@@ -28,7 +28,10 @@ COPY . .
 FROM node:20-alpine AS runner
 
 # 5. Install runtime shared libraries for Sharp
-RUN apk add --no-cache vips
+RUN apk add --no-cache \
+    vips \
+    curl
+    
 
 WORKDIR /usr/src/app
 

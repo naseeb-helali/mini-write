@@ -1,6 +1,6 @@
 const pool = require('../config/db');
+const storageProvider = require('../storage');
 const redisConnection = require('../config/redis');
-const minioClient = require('../config/storage');
 
 // 🔷 DB Check
 const checkDatabase = async () => {
@@ -23,13 +23,25 @@ const checkRedis = async () => {
 };
 
 // 🔷 MinIO Check
-const checkMinIO = async () => {
-    try {
-        await minioClient.listBuckets();
-        return { status: 'UP' };
-    } catch (err) {
-        return { status: 'DOWN', error: err.message };
-    }
+const storageBucket =
+  process.env.STORAGE_INPUT_BUCKET ||
+  'user-documents';
+
+const checkStorage = async () => {
+  try {
+    await storageProvider.checkHealth(
+      storageBucket
+    );
+
+    return {
+      status: 'UP'
+    };
+  } catch (err) {
+    return {
+      status: 'DOWN',
+      error: err.message
+    };
+  }
 };
 
 // 🔥 Combined Health Check
@@ -37,7 +49,7 @@ const getSystemHealth = async () => {
     const [db, redis, storage] = await Promise.all([
         checkDatabase(),
         checkRedis(),
-        checkMinIO()
+        checkStorage()
     ]);
 
     const isHealthy =

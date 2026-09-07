@@ -1,42 +1,60 @@
 const Redis = require('ioredis');
 
-
 const redisConfig = {
-    host: process.env.REDIS_HOST || 'mw-redis',
-    port: parseInt(process.env.REDIS_PORT) || 6379,
+  host:
+    process.env.REDIS_HOST,
 
-    // Professional Retry Strategy:
-    // It will keep trying to reconnect forever with an increasing delay (max 2 seconds)
-    retryStrategy: (times) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
-    },
+  port:
+    parseInt(
+      process.env.REDIS_PORT,
+      10
+    ) || 6379,
 
-    // CRITICAL for BullMQ:
-    // This allows the connection to wait for blocking commands without timing out.
-    maxRetriesPerRequest: null,
+  password:
+    process.env.REDIS_PASSWORD,
 
-    // Enable keepAlive to prevent unexpected connection drops by the OS
-    keepAlive: 10000,
+  retryStrategy: (times) =>
+    Math.min(times * 50, 2000),
+
+  maxRetriesPerRequest: null,
+
+  keepAlive: 10000
 };
 
-const redisConnection = new Redis(redisConfig);
+const redisConnection =
+  new Redis(redisConfig);
 
-// Monitoring Connection Events
-redisConnection.on('connect', () => {
-    console.log('📡 [Worker-Redis] Connection attempt initiated...');
-});
+redisConnection.on(
+  'connect',
+  () =>
+    console.log(
+      '📡 [Worker-Redis] Connection attempt initiated...'
+    )
+);
 
-redisConnection.on('ready', () => {
-    console.log('✅ [Worker-Redis] Ready and listening for jobs.');
-});
+redisConnection.on(
+  'ready',
+  () =>
+    console.log(
+      '✅ [Worker-Redis] Ready and listening for jobs.'
+    )
+);
 
-redisConnection.on('error', (err) => {
-    console.error('❌ [Worker-Redis] Critical Error:', err.message);
-});
+redisConnection.on(
+  'error',
+  (err) =>
+    console.error(
+      '❌ [Worker-Redis] Critical Error:',
+      err.message
+    )
+);
 
-redisConnection.on('reconnecting', () => {
-    console.warn('⚠️ [Worker-Redis] Connection lost. Attempting to reconnect...');
-});
+redisConnection.on(
+  'reconnecting',
+  () =>
+    console.warn(
+      '⚠️ [Worker-Redis] Connection lost. Attempting to reconnect...'
+    )
+);
 
 module.exports = redisConnection;

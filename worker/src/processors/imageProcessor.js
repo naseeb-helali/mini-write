@@ -1,5 +1,6 @@
 const sharp = require('sharp');
-const minioClient = require('../config/storage');
+const storageService = require('../storage/storageService');
+
 const pool = require('../config/db');
 const logger = require('../observability/logger');
 const EVENTS = require('../observability/events');
@@ -24,8 +25,8 @@ const {
 const processIdCard = async (job) => {
 const { fileName, userId } = job.data;
 
-const bucketName = process.env.MINIO_BUCKET_NAME;
-const outputBucket = process.env.MINIO_PROCESSED_BUCKET;
+const bucketName = storageService.INPUT_BUCKET;
+const outputBucket = storageService.OUTPUT_BUCKET;
 
 if (!bucketName || !outputBucket) {
     throw new Error("Storage configuration missing in environment variables");
@@ -146,10 +147,11 @@ const storageReadTimer =
         operation: 'download'
     });
 
-const dataStream = await minioClient.getObject(
+const dataStream =
+  await storageService.getObject(
     bucketName,
     fileName
-    );
+  );
 
 storageOperationsTotal.inc({
     operation: 'download',
@@ -210,11 +212,11 @@ const storageWriteTimer =
         operation: 'upload'
     });
 
-await minioClient.putObject(
-    outputBucket,
-    processedFileName,
-    processedBuffer,
-    { 'Content-Type': 'image/jpeg' }
+await storageService.putObject(
+  outputBucket,
+  processedFileName,
+  processedBuffer,
+  { 'Content-Type': 'image/jpeg' }
 );
 
 storageOperationsTotal.inc({

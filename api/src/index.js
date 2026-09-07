@@ -3,7 +3,6 @@ const register = require('./observability/registry');
 require('dotenv').config();
 const express = require('express');
 const { initUserTable } = require('./models/userModel');
-const { initStorage } = require('./services/storageService');
 const authRoutes = require('./routes/authRoutes');
 const { getSystemHealth } = require('./health/healthService');
 require('./config/redis');
@@ -82,10 +81,6 @@ async function startServer() {
     // 🔷 Database init 
     await initUserTable();
     console.log("[DB] Database migration completed.");
-
-    // 🔷 Storage init
-    await initStorage();
-    console.log("[Storage] Object Storage is ready.");
 
     // 🔷 Start server
     const PORT = process.env.HTTP_PORT || 80;

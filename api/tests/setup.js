@@ -1,10 +1,18 @@
-// منع الانهيار بسبب غياب المتغيرات البيئية
+// Environment required for tests
+
+process.env.STORAGE_PROVIDER = 'minio';
+process.env.STORAGE_INPUT_BUCKET = 'user-documents';
+
 process.env.MINIO_ENDPOINT = 'localhost';
 process.env.MINIO_PORT = '9000';
+
+process.env.MINIO_ROOT_USER = 'test_user';
+process.env.MINIO_ROOT_PASSWORD = 'test_password';
+
 process.env.JWT_SECRET = 'test_secret';
+process.env.JWT_EXPIRY = '1h';
+
 process.env.POSTGRES_HOST = 'localhost';
-// أضف هذا السطر مع بقية المتغيرات في ملف setup.js
-process.env.JWT_EXPIRES_IN = '1h';
 
 // 2. Mock مكتبة PostgreSQL (pg)
 jest.mock('pg', () => {
@@ -28,13 +36,15 @@ jest.mock('ioredis', () => {
 
 // 4. Mock مكتبة MinIO (Storage)
 jest.mock('minio', () => {
+  const mockMinioClient = {
+    putObject: jest.fn().mockResolvedValue({ etag: '123' }),
+    getObject: jest.fn(),
+    statObject: jest.fn().mockResolvedValue({ size: 100 })
+  };
+
   return {
-    Client: jest.fn().mockImplementation(() => ({
-      bucketExists: jest.fn().mockResolvedValue(true),
-      makeBucket: jest.fn().mockResolvedValue(true),
-      putObject: jest.fn().mockResolvedValue({ etag: '123' }),
-      statObject: jest.fn().mockResolvedValue({ size: 100 }),
-    }))
+    Client: jest.fn().mockImplementation(() => mockMinioClient),
+    __mockMinioClient: mockMinioClient
   };
 });
 

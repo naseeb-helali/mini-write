@@ -1,6 +1,16 @@
 // 1. تعريف المتغيرات البيئية اللازمة للمعالج 
-process.env.MINIO_BUCKET_NAME = 'uploads';
-process.env.MINIO_PROCESSED_BUCKET = 'processed';
+process.env.STORAGE_PROVIDER = 'minio';
+
+process.env.STORAGE_INPUT_BUCKET = 'uploads';
+
+process.env.STORAGE_OUTPUT_BUCKET = 'processed';
+
+process.env.MINIO_ENDPOINT = 'localhost';
+process.env.MINIO_PORT = '9000';
+
+process.env.MINIO_ROOT_USER = 'test_user';
+process.env.MINIO_ROOT_PASSWORD = 'test_password';
+
 process.env.NODE_ENV = 'test';
 
 // 2. محاكاة مكتبة PostgreSQL (pg) 
@@ -12,11 +22,6 @@ jest.mock('../src/config/db', () => ({
   query: jest.fn()
 }));
 
-// 3. محاكاة مكتبة MinIO
-jest.mock('../src/config/storage', () => ({
-  getObject: jest.fn(),
-  putObject: jest.fn()
-}));
 
 // 4. محاكاة مكتبة Sharp (لمنع استهلاك CPU حقيقي) 
 jest.mock('sharp', () => {
@@ -35,3 +40,33 @@ jest.mock('bullmq', () => ({
     close: jest.fn()
   }))
 }));
+
+
+
+jest.mock('minio', () => {
+
+  const mockMinioClient = {
+
+    getObject:
+      jest.fn(),
+
+    putObject:
+      jest.fn().mockResolvedValue({
+        etag: '123'
+      })
+
+  };
+
+  return {
+
+    Client:
+      jest.fn().mockImplementation(
+        () => mockMinioClient
+      ),
+
+    __mockMinioClient:
+      mockMinioClient
+
+  };
+
+});
