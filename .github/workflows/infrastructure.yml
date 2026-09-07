@@ -1,0 +1,425 @@
+################################################################################
+# Mini-Write
+#
+# Infrastructure / IaC Workflow
+#
+# Responsibilities:
+#   - Terraform formatting
+#   - Terraform validation
+#   - Terraform planning
+#   - Reviewed-plan application
+#   - Post-apply state verification
+#
+# This workflow MUST NOT:
+#   - build application images
+#   - publish application artifacts
+#   - deploy application releases
+#   - execute CD deployment adapters
+#   - manage application rollback
+################################################################################
+
+name: Mini-Write Infrastructure
+
+on:
+  pull_request:
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/infrastructure.yml"
+
+  push:
+    branches:
+      - main
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/infrastructure.yml"
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Infrastructure environment"
+        required: true
+        type: choice
+        options:
+          - staging
+      action:
+        description: "Infrastructure action"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TERRAFORM_VERSION: "1.9.8"
+  TERRAFORM_ROOT: "infra/terraform"
+  TERRAFORM_ENVIRONMENT: "staging"
+
+jobs:
+
+  # ============================================================================
+  # Terraform Format
+  # ============================================================================
+
+  format:
+    name: Terraform Format
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Format Check
+        working-directory: ${{ env.TERRAFORM_ROOT }}
+        run: |
+          set -euo pipefail
+
+          terraform fmt \
+            -check \
+            -diff \
+            -recursive
+
+
+  # ============================================================================
+  # Terraform Validate
+  # ============================================================================
+
+  validate:
+    name: Terraform Validate
+    needs:
+      - format
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          terraform init \
+            -input=false \
+            -upgrade=false
+
+      - name: Terraform Validate
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          terraform validate
+
+
+  # ============================================================================
+  # Terraform Plan
+  #
+  # PR:
+  #   plan only
+  #
+  # main:
+  #   plan and publish the exact plan artifact for the apply job
+  # ============================================================================
+
+  plan:
+    name: Terraform Plan
+    needs:
+      - validate
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    concurrency:
+      group: mini-write-terraform-${{ env.TERRAFORM_ENVIRONMENT }}
+      cancel-in-progress: false
+
+    outputs:
+      plan_created: ${{ steps.plan.outputs.plan_created }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      # ------------------------------------------------------------------------
+      # AWS identity
+      #
+      # The role is supplied by GitHub Environment / Repository Variables.
+      # No long-lived AWS access keys are stored in GitHub.
+      # ------------------------------------------------------------------------
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_IAC_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify AWS Identity
+        run: |
+          set -euo pipefail
+
+          aws sts get-caller-identity
+
+      - name: Terraform Init
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          terraform init \
+            -input=false \
+            -upgrade=false
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          terraform plan \
+            -input=false \
+            -lock=true \
+            -out=tfplan
+
+          echo "plan_created=true" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------------
+      # Human-readable plan
+      # ------------------------------------------------------------------------
+
+      - name: Export Plan Summary
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          terraform show \
+            -no-color \
+            tfplan > terraform-plan.txt
+
+      # ------------------------------------------------------------------------
+      # Plan artifact
+      #
+      # The binary tfplan is the reviewed execution artifact.
+      # ------------------------------------------------------------------------
+
+      - name: Upload Terraform Plan
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-terraform-plan-${{ github.sha }}
+          path: |
+            ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}/tfplan
+            ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}/terraform-plan.txt
+          retention-days: 30
+          if-no-files-found: error
+
+      # ------------------------------------------------------------------------
+      # PR plan is evidence only.
+      # It MUST NOT be applied.
+      # ------------------------------------------------------------------------
+
+      - name: Publish PR Plan Summary
+        if: github.event_name == 'pull_request'
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## Terraform Plan"
+            echo
+            echo '```text'
+            cat terraform-plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+
+  # ============================================================================
+  # Apply
+  #
+  # Only main and explicit manual apply may mutate infrastructure.
+  #
+  # The apply job consumes the EXACT plan generated by the plan job.
+  # It does NOT run a new terraform plan.
+  # ============================================================================
+
+  apply:
+    name: Terraform Apply
+    needs:
+      - plan
+
+    if: >
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/main')
+      ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.action == 'apply')
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    environment:
+      name: staging-infrastructure
+
+    concurrency:
+      group: mini-write-terraform-${{ env.TERRAFORM_ENVIRONMENT }}
+      cancel-in-progress: false
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_IAC_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify AWS Identity
+        run: |
+          set -euo pipefail
+
+          aws sts get-caller-identity
+
+      - name: Download Reviewed Terraform Plan
+        uses: actions/download-artifact@v5
+        with:
+          name: mini-write-terraform-plan-${{ github.sha }}
+          path: terraform-plan-artifact
+
+      - name: Restore Terraform Plan
+        run: |
+          set -euo pipefail
+
+          test -f \
+            terraform-plan-artifact/tfplan
+
+          test -f \
+            terraform-plan-artifact/terraform-plan.txt
+
+          mkdir -p \
+            "${TERRAFORM_ROOT}/environments/${TERRAFORM_ENVIRONMENT}"
+
+          cp \
+            terraform-plan-artifact/tfplan \
+            "${TERRAFORM_ROOT}/environments/${TERRAFORM_ENVIRONMENT}/tfplan"
+
+          cp \
+            terraform-plan-artifact/terraform-plan.txt \
+            "${TERRAFORM_ROOT}/environments/${TERRAFORM_ENVIRONMENT}/terraform-plan.txt"
+
+      - name: Terraform Init
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          terraform init \
+            -input=false \
+            -upgrade=false
+
+      - name: Verify Reviewed Plan
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          test -f tfplan
+
+          terraform show \
+            -no-color \
+            tfplan > /tmp/applied-plan.txt
+
+          cmp \
+            terraform-plan.txt \
+            /tmp/applied-plan.txt
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          terraform apply \
+            -input=false \
+            -lock=true \
+            -auto-approve \
+            tfplan
+
+      - name: Terraform State Verification
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          terraform state list
+
+      - name: Publish Apply Summary
+        working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## Terraform Apply"
+            echo
+            echo "- Environment: ${TERRAFORM_ENVIRONMENT}"
+            echo "- Source SHA: ${GITHUB_SHA}"
+            echo "- Terraform: ${TERRAFORM_VERSION}"
+            echo
+            echo "### State"
+            echo
+            echo '```text'
+            terraform state list
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

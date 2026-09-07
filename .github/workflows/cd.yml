@@ -1,0 +1,1252 @@
+name: Mini-Write CD
+
+on:
+  workflow_run:
+    workflows:
+      - Mini-Write CI
+    types:
+      - completed
+    branches:
+      - main
+
+  push:
+    tags:
+      - "v*"
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+      source_sha:
+        description: "Source SHA whose existing artifact should be deployed"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CI_WORKFLOW: ci.yml
+  CD_WORKFLOW: cd.yml
+  ARTIFACT_PREFIX: mini-write-artifact
+  MANIFEST_PATH: artifact/artifact-manifest.json
+
+jobs:
+
+  # ============================================================================
+  # Resolve Artifact
+  #
+  # Resolves an already-produced CI artifact.
+  #
+  # IMPORTANT:
+  # - No build.
+  # - No publish.
+  # - No artifact creation.
+  # - No environment mutation.
+  # ============================================================================
+
+  resolve-artifact:
+    name: Resolve Release Artifact
+
+    if: >
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
+      ||
+      (
+        github.event_name == 'push' &&
+        startsWith(github.ref, 'refs/tags/v')
+      )
+      ||
+      (
+        github.event_name == 'workflow_dispatch'
+      )
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    outputs:
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      ci_run_id: ${{ steps.resolve.outputs.ci_run_id }}
+      artifact_name: ${{ steps.resolve.outputs.artifact_name }}
+
+    steps:
+
+      - name: Resolve source SHA
+        id: source
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          case "$EVENT_NAME" in
+
+            workflow_run)
+              SOURCE_SHA="$WORKFLOW_RUN_SHA"
+              ;;
+
+            push)
+              SOURCE_SHA="$EVENT_SHA"
+              ;;
+
+            workflow_dispatch)
+              SOURCE_SHA="$INPUT_SHA"
+              ;;
+
+            *)
+              echo "Unsupported event: $EVENT_NAME"
+              exit 1
+              ;;
+
+          esac
+
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid source SHA: $SOURCE_SHA"
+            exit 1
+          fi
+
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve successful CI run
+        id: resolve
+        uses: actions/github-script@v7
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          CI_WORKFLOW: ${{ env.CI_WORKFLOW }}
+          ARTIFACT_PREFIX: ${{ env.ARTIFACT_PREFIX }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sourceSha = process.env.SOURCE_SHA;
+
+            const response =
+              await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: process.env.CI_WORKFLOW,
+                head_sha: sourceSha,
+                status: "success",
+                per_page: 50
+              });
+
+            const runs = response.data.workflow_runs
+              .filter(run =>
+                run.head_sha === sourceSha &&
+                run.conclusion === "success"
+              )
+              .sort((a, b) =>
+                new Date(b.created_at) - new Date(a.created_at)
+              );
+
+            if (runs.length === 0) {
+              core.setFailed(
+                `No successful CI run found for source SHA ${sourceSha}`
+              );
+              return;
+            }
+
+            const run = runs[0];
+            const artifactName =
+              `${process.env.ARTIFACT_PREFIX || "mini-write-artifact"}-${sourceSha}`;
+
+            core.info(`CI run: ${run.id}`);
+            core.info(`Source SHA: ${sourceSha}`);
+            core.info(`Artifact: ${artifactName}`);
+
+            core.setOutput("source_sha", sourceSha);
+            core.setOutput("ci_run_id", String(run.id));
+            core.setOutput("artifact_name", artifactName);          
+
+
+  # ============================================================================
+  # Fetch + Validate Artifact
+  # ============================================================================
+
+  validate-artifact:
+    name: Validate Release Artifact
+
+    needs:
+      - resolve-artifact
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    outputs:
+      release_id: ${{ steps.export-identity.outputs.release_id }}
+      version: ${{ steps.export-identity.outputs.version }}
+      api_digest: ${{ steps.export-identity.outputs.api_digest }}
+      worker_digest: ${{ steps.export-identity.outputs.worker_digest }}
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+
+      - name: Download artifact manifest
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ needs.resolve-artifact.outputs.artifact_name }}
+          path: artifact
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.resolve-artifact.outputs.ci_run_id }}
+
+      - name: Verify manifest exists
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f "$MANIFEST_PATH"
+
+          echo "Artifact manifest:"
+          cat "$MANIFEST_PATH"
+
+      - name: Validate manifest
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          manifest_path = os.environ["MANIFEST_PATH"]
+          expected_sha = os.environ["EXPECTED_SHA"]
+
+          with open(manifest_path, "r", encoding="utf-8") as f:
+              manifest = json.load(f)
+
+          def fail(message):
+              print(f"MANIFEST VALIDATION FAILED: {message}")
+              sys.exit(1)
+
+          def require(condition, message):
+              if not condition:
+                  fail(message)
+
+          sha_pattern = re.compile(r"^[0-9a-f]{40}$")
+          digest_pattern = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+          require(
+              manifest.get("schemaVersion") == "1.0",
+              "schemaVersion must be 1.0"
+          )
+
+          require(
+              manifest.get("project") == "mini-write",
+              "project must be mini-write"
+          )
+
+          source = manifest.get("source", {})
+          release = manifest.get("release", {})
+          artifacts = manifest.get("artifacts", {})
+
+          source_commit = source.get("commit")
+          release_id = release.get("id")
+          version = release.get("version")
+
+          require(
+              isinstance(source_commit, str)
+              and sha_pattern.fullmatch(source_commit),
+              "source.commit must be a 40-character SHA"
+          )
+
+          require(
+              source_commit == expected_sha,
+              (
+                  f"source.commit {source_commit} "
+                  f"does not match expected SHA {expected_sha}"
+              )
+          )
+
+          require(
+              isinstance(release_id, str)
+              and sha_pattern.fullmatch(release_id),
+              "release.id must be a 40-character SHA"
+          )
+
+          require(
+              release_id == source_commit,
+              "release.id must equal source.commit"
+          )
+
+          require(
+              isinstance(version, str)
+              and len(version) > 0,
+              "release.version must exist"
+          )
+
+          for service in ("api", "worker"):
+
+              artifact = artifacts.get(service)
+
+              require(
+                  isinstance(artifact, dict),
+                  f"artifacts.{service} must exist"
+              )
+
+              name = artifact.get("name")
+              tag = artifact.get("tag")
+              digest = artifact.get("digest")
+
+              require(
+                  isinstance(name, str)
+                  and len(name) > 0,
+                  f"artifacts.{service}.name must exist"
+              )
+
+              require(
+                  isinstance(tag, str)
+                  and sha_pattern.fullmatch(tag),
+                  f"artifacts.{service}.tag must be a 40-character SHA"
+              )
+
+              require(
+                  tag == source_commit,
+                  f"artifacts.{service}.tag must equal source.commit"
+              )
+
+              require(
+                  isinstance(digest, str)
+                  and digest_pattern.fullmatch(digest),
+                  (
+                      f"artifacts.{service}.digest "
+                      f"must be a valid sha256 digest"
+                  )
+              )
+
+              print(
+                  f"{service}: "
+                  f"name={name}, "
+                  f"tag={tag}, "
+                  f"digest={digest}"
+              )
+
+          print("Manifest validation passed.")
+          PY
+
+      - name: Export artifact identity
+        id: export-identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open(os.environ["MANIFEST_PATH"], "r", encoding="utf-8") as f:
+              manifest = json.load(f)
+
+          release = manifest["release"]
+          artifacts = manifest["artifacts"]
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"release_id={release['id']}\n")
+              out.write(f"version={release['version']}\n")
+              out.write(f"api_digest={artifacts['api']['digest']}\n")
+              out.write(f"worker_digest={artifacts['worker']['digest']}\n")
+
+
+  # ============================================================================
+  # Staging Deployment
+  #
+  # Generic CD orchestration.
+  #
+  # Deployment implementation is delegated to:
+  #
+  #   ci/deployment/deploy.sh
+  #   ci/deployment/verify.sh
+  #
+  # No SSH/ECS/kubectl/docker-compose logic belongs here.
+  # ============================================================================
+
+  deploy-staging:
+    name: Deploy Staging
+
+    needs:
+      - resolve-artifact
+      - validate-artifact
+
+    if: >
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
+      ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.environment == 'staging'
+      )
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    environment:
+      name: staging
+
+    concurrency:
+      group: mini-write-staging-deployment
+      cancel-in-progress: false
+
+    timeout-minutes: 20
+
+    env:
+      DEPLOYMENT_TARGET: ${{ vars.DEPLOYMENT_TARGET }}
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+
+      - name: Validate deployment target
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "${DEPLOYMENT_TARGET:-}"
+
+          case "$DEPLOYMENT_TARGET" in
+            vm|aws-ecs)
+              echo "Deployment target: $DEPLOYMENT_TARGET"
+              ;;
+            *)
+              echo "Unsupported deployment target: $DEPLOYMENT_TARGET"
+              exit 1
+              ;;
+          esac
+
+      - name: Create deployment request
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+          VERSION: ${{ needs.validate-artifact.outputs.version }}
+          API_DIGEST: ${{ needs.validate-artifact.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.validate-artifact.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p deployment-request
+
+          cat > deployment-request/request.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "environment": "staging",
+            "release": {
+              "id": "$RELEASE_ID",
+              "source": "$SOURCE_SHA",
+              "version": "$VERSION"
+            },
+            "artifacts": {
+              "api": {
+                "tag": "$SOURCE_SHA",
+                "digest": "$API_DIGEST"
+              },
+              "worker": {
+                "tag": "$SOURCE_SHA",
+                "digest": "$WORKER_DIGEST"
+              }
+            }
+          }
+          EOF
+
+          cat deployment-request/request.json
+
+      - name: Deploy through deployment adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/deployment/deploy.sh
+
+          ./ci/deployment/deploy.sh \
+            --request deployment-request/request.json
+
+      - name: Verify staging through deployment adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/deployment/verify.sh
+
+          ./ci/deployment/verify.sh \
+            --request deployment-request/request.json
+
+      - name: Record promotion eligibility evidence
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+          VERSION: ${{ needs.validate-artifact.outputs.version }}
+          API_DIGEST: ${{ needs.validate-artifact.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.validate-artifact.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p evidence
+
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+
+          source_sha = os.environ["SOURCE_SHA"]
+
+          evidence = {
+              "schemaVersion": "1.0",
+              "project": "mini-write",
+              "gate": "promotion-eligibility",
+              "status": "passed",
+              "environment": "staging",
+              "release": {
+                  "id": os.environ["RELEASE_ID"],
+                  "source": source_sha,
+                  "version": os.environ["VERSION"]
+              },
+              "artifact": {
+                  "api": {
+                      "tag": source_sha,
+                      "digest": os.environ["API_DIGEST"]
+                  },
+                  "worker": {
+                      "tag": source_sha,
+                      "digest": os.environ["WORKER_DIGEST"]
+                  }
+              },
+              "evidence": {
+                  "stagingDeployed": True,
+                  "stagingVerified": True,
+                  "artifactIdentityVerified": True
+              },
+              "timestamp": datetime.now(timezone.utc).isoformat()
+          }
+
+          with open(
+              "evidence/promotion-eligibility.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+              json.dump(evidence, f, indent=2)
+              f.write("\n")
+          PY
+
+          cat evidence/promotion-eligibility.json
+
+      - name: Upload promotion eligibility evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-promotion-eligibility-${{ needs.resolve-artifact.outputs.source_sha }}
+          path: evidence/promotion-eligibility.json
+          if-no-files-found: error
+          retention-days: 30
+
+
+  # ============================================================================
+  # Production Promotion Eligibility
+  #
+  # Requirements:
+  #   1. Successful CI artifact exists.
+  #   2. Successful staging CD exists.
+  #   3. Staging promotion evidence exists.
+  #   4. Artifact identity is unchanged.
+  #
+  # This job performs no production mutation.
+  # ============================================================================
+
+  production-eligibility:
+    name: Production Promotion Eligibility
+
+    needs:
+      - resolve-artifact
+      - validate-artifact
+
+    if: >
+      (
+        github.event_name == 'push' &&
+        startsWith(github.ref, 'refs/tags/v')
+      )
+      ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.environment == 'production'
+      )
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    outputs:
+      eligible: ${{ steps.eligibility.outputs.eligible }}
+      staging_run_id: ${{ steps.staging.outputs.run_id }}
+
+    steps:
+
+      - name: Resolve successful staging CD run
+        id: staging
+        uses: actions/github-script@v7
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          CD_WORKFLOW: ${{ env.CD_WORKFLOW }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sourceSha = process.env.SOURCE_SHA;
+
+            const response =
+              await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: process.env.CD_WORKFLOW,
+                head_sha: sourceSha,
+                status: "success",
+                per_page: 50
+              });
+
+            const runs = response.data.workflow_runs
+              .filter(run =>
+                run.head_sha === sourceSha &&
+                run.conclusion === "success" &&
+                run.event === "workflow_run"
+              )
+              .sort((a, b) =>
+                new Date(b.created_at) - new Date(a.created_at)
+              );
+
+            if (runs.length === 0) {
+              core.setFailed(
+                `No successful staging CD run found for ${sourceSha}`
+              );
+              return;
+            }
+
+            const run = runs[0];
+
+            core.info(`Staging CD run: ${run.id}`);
+            core.info(`Source SHA: ${sourceSha}`);
+
+            core.setOutput("run_id", String(run.id));
+
+      - name: Download staging promotion evidence
+        uses: actions/download-artifact@v5
+        with:
+          name: mini-write-promotion-eligibility-${{ needs.resolve-artifact.outputs.source_sha }}
+          path: staging-evidence
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.staging.outputs.run_id }}
+
+      - name: Validate promotion evidence
+        id: eligibility
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+          API_DIGEST: ${{ needs.validate-artifact.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.validate-artifact.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          test -f \
+            staging-evidence/evidence/promotion-eligibility.json
+
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          path = "staging-evidence/evidence/promotion-eligibility.json"
+
+          with open(path, "r", encoding="utf-8") as f:
+              evidence = json.load(f)
+
+          def fail(message):
+              print(f"PROMOTION ELIGIBILITY FAILED: {message}")
+              sys.exit(1)
+
+          def require(condition, message):
+              if not condition:
+                  fail(message)
+
+          source_sha = os.environ["SOURCE_SHA"]
+          release_id = os.environ["RELEASE_ID"]
+          api_digest = os.environ["API_DIGEST"]
+          worker_digest = os.environ["WORKER_DIGEST"]
+
+          require(
+              evidence.get("schemaVersion") == "1.0",
+              "Invalid evidence schema"
+          )
+
+          require(
+              evidence.get("project") == "mini-write",
+              "Invalid project"
+          )
+
+          require(
+              evidence.get("gate") == "promotion-eligibility",
+              "Invalid gate"
+          )
+
+          require(
+              evidence.get("status") == "passed",
+              "Staging promotion evidence is not passed"
+          )
+
+          require(
+              evidence.get("environment") == "staging",
+              "Evidence environment is not staging"
+          )
+
+          release = evidence.get("release", {})
+          artifact = evidence.get("artifact", {})
+          verification = evidence.get("evidence", {})
+
+          require(
+              release.get("id") == release_id,
+              "Release ID mismatch"
+          )
+
+          require(
+              release.get("source") == source_sha,
+              "Source SHA mismatch"
+          )
+
+          require(
+              artifact.get("api", {}).get("tag") == source_sha,
+              "API tag mismatch"
+          )
+
+          require(
+              artifact.get("worker", {}).get("tag") == source_sha,
+              "Worker tag mismatch"
+          )
+
+          require(
+              artifact.get("api", {}).get("digest") == api_digest,
+              "API digest changed between CI and staging"
+          )
+
+          require(
+              artifact.get("worker", {}).get("digest") == worker_digest,
+              "Worker digest changed between CI and staging"
+          )
+
+          require(
+              verification.get("stagingDeployed") is True,
+              "Staging deployment evidence missing"
+          )
+
+          require(
+              verification.get("stagingVerified") is True,
+              "Staging verification evidence missing"
+          )
+
+          require(
+              verification.get("artifactIdentityVerified") is True,
+              "Artifact identity verification missing"
+          )
+
+          print("==========================================")
+          print("PROMOTION ELIGIBILITY: PASSED")
+          print("==========================================")
+          print(f"Source SHA:    {source_sha}")
+          print(f"Release ID:    {release_id}")
+          print(f"API digest:    {api_digest}")
+          print(f"Worker digest: {worker_digest}")
+          print("Staging:       VERIFIED")
+          print("Identity:      UNCHANGED")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("eligible=true\n")
+
+
+  # ============================================================================
+  # Production Release
+  #
+  # IMPORTANT:
+  # - Does not build.
+  # - Does not publish.
+  # - Does not create an artifact.
+  # - Uses the exact artifact already verified in staging.
+  #
+  # GitHub Environment "production" provides the approval boundary.
+  # ============================================================================
+
+  production-release:
+    name: Production Release
+
+    needs:
+      - resolve-artifact
+      - validate-artifact
+      - production-eligibility
+
+    if: >
+      (
+        github.event_name == 'push' &&
+        startsWith(github.ref, 'refs/tags/v') &&
+        needs.production-eligibility.result == 'success'
+      )
+      ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.environment == 'production' &&
+        needs.production-eligibility.result == 'success'
+      )
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    outputs:
+      deployment_started: ${{ steps.deployment-start.outputs.deployment_started }}
+
+    environment:
+      name: production
+
+    concurrency:
+      group: mini-write-production-deployment
+      cancel-in-progress: false
+
+    timeout-minutes: 30
+
+    env:
+      DEPLOYMENT_TARGET: ${{ vars.DEPLOYMENT_TARGET }}
+
+    steps:
+
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+
+      - name: Validate deployment target
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "${DEPLOYMENT_TARGET:-}"
+
+          case "$DEPLOYMENT_TARGET" in
+            vm|aws-ecs)
+              echo "Production deployment target: $DEPLOYMENT_TARGET"
+              ;;
+            *)
+              echo "Unsupported deployment target: $DEPLOYMENT_TARGET"
+              exit 1
+              ;;
+          esac
+
+      - name: Build promotion request
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+          VERSION: ${{ needs.validate-artifact.outputs.version }}
+          API_DIGEST: ${{ needs.validate-artifact.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.validate-artifact.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p promotion-request
+
+          cat > promotion-request/request.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "sourceEnvironment": "staging",
+            "targetEnvironment": "production",
+            "release": {
+              "id": "$RELEASE_ID",
+              "source": "$SOURCE_SHA",
+              "version": "$VERSION"
+            },
+            "artifact": {
+              "api": {
+                "digest": "$API_DIGEST"
+              },
+              "worker": {
+                "digest": "$WORKER_DIGEST"
+              }
+            },
+            "evidence": {
+              "stagingVerified": true,
+              "artifactIdentityVerified": true
+            }
+          }
+          EOF
+
+          cat promotion-request/request.json
+
+      - name: Execute promotion authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/promotion/promote.sh
+
+          ./ci/promotion/promote.sh \
+            --request promotion-request/request.json
+
+      - name: Build approved deployment request
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+          VERSION: ${{ needs.validate-artifact.outputs.version }}
+          API_DIGEST: ${{ needs.validate-artifact.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.validate-artifact.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p deployment-request
+
+          cat > deployment-request/request.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "environment": "production",
+            "release": {
+              "id": "$RELEASE_ID",
+              "source": "$SOURCE_SHA",
+              "version": "$VERSION"
+            },
+            "artifacts": {
+              "api": {
+                "tag": "$SOURCE_SHA",
+                "digest": "$API_DIGEST"
+              },
+              "worker": {
+                "tag": "$SOURCE_SHA",
+                "digest": "$WORKER_DIGEST"
+              }
+            }
+          }
+          EOF
+
+          cat deployment-request/request.json
+
+      - name: Mark deployment start
+        id: deployment-start
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+        run: |
+          set -euo pipefail
+
+          echo "deployment_started=true" >> "$GITHUB_OUTPUT"
+
+          mkdir -p deployment-state
+
+          cat > deployment-state/deployment-started.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "environment": "production",
+            "release": "$RELEASE_ID",
+            "source": "$SOURCE_SHA",
+            "status": "mutation-started"
+          }
+          EOF
+
+          cat deployment-state/deployment-started.json
+
+      - name: Deploy approved artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/deployment/deploy.sh
+
+          ./ci/deployment/deploy.sh \
+            --request deployment-request/request.json
+
+      - name: Verify production
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/deployment/verify.sh
+
+          ./ci/deployment/verify.sh \
+            --request deployment-request/request.json
+
+      - name: Record production verification evidence
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+          VERSION: ${{ needs.validate-artifact.outputs.version }}
+          API_DIGEST: ${{ needs.validate-artifact.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.validate-artifact.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p evidence
+
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+
+          source_sha = os.environ["SOURCE_SHA"]
+
+          evidence = {
+              "schemaVersion": "1.0",
+              "project": "mini-write",
+              "gate": "production-verification",
+              "status": "passed",
+              "environment": "production",
+              "release": {
+                  "id": os.environ["RELEASE_ID"],
+                  "source": source_sha,
+                  "version": os.environ["VERSION"]
+              },
+              "artifact": {
+                  "api": {
+                      "tag": source_sha,
+                      "digest": os.environ["API_DIGEST"]
+                  },
+                  "worker": {
+                      "tag": source_sha,
+                      "digest": os.environ["WORKER_DIGEST"]
+                  }
+              },
+              "timestamp": datetime.now(timezone.utc).isoformat()
+          }
+
+          with open(
+              "evidence/production-verification.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+              json.dump(evidence, f, indent=2)
+              f.write("\n")
+          PY
+
+          cat evidence/production-verification.json
+
+      - name: Upload production verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-production-verification-${{ needs.resolve-artifact.outputs.source_sha }}
+          path: evidence/production-verification.json
+          if-no-files-found: error
+          retention-days: 90
+
+
+  # ============================================================================
+  # Production Rollback
+  #
+  # Runs only when:
+  #   1. Production job actually failed.
+  #   2. Production mutation had started.
+  #
+  # Approval rejection / skipped production does NOT trigger rollback.
+  #
+  # Rollback:
+  #   - does not rebuild
+  #   - does not publish
+  #   - does not use latest
+  #   - does not checkout previous Git commit
+  #   - resolves previous known-good production artifact
+  # ============================================================================
+
+  rollback-production:
+    name: Rollback Production
+
+    needs:
+      - resolve-artifact
+      - validate-artifact
+      - production-eligibility
+      - production-release
+
+    if: >
+      always()
+      &&
+      needs.production-release.result == 'failure'
+      &&
+      needs.production-release.outputs.deployment_started == 'true'
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    environment:
+      name: production
+
+    concurrency:
+      group: mini-write-production-deployment
+      cancel-in-progress: false
+
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      actions: read
+
+    env:
+      DEPLOYMENT_TARGET: ${{ vars.DEPLOYMENT_TARGET }}
+
+    steps:
+
+      - name: Checkout failed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+
+      - name: Validate rollback environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "${DEPLOYMENT_TARGET:-}"
+
+          case "$DEPLOYMENT_TARGET" in
+            vm|aws-ecs)
+              echo "Rollback target: $DEPLOYMENT_TARGET"
+              ;;
+            *)
+              echo "Unsupported rollback target: $DEPLOYMENT_TARGET"
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve previous known-good production release
+        id: resolve-previous
+        shell: bash
+        env:
+          FAILED_SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          ./ci/rollback/resolve.sh
+
+      - name: Download previous production verification evidence
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ steps.resolve-previous.outputs.artifact_name }}
+          path: rollback-evidence
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.resolve-previous.outputs.run_id }}
+
+      - name: Validate rollback target
+        env:
+          FAILED_SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          TARGET_SOURCE_SHA: ${{ steps.resolve-previous.outputs.source_sha }}
+          ROLLBACK_EVIDENCE: rollback-evidence/production-verification.json
+        run: |
+          set -euo pipefail
+
+          ./ci/rollback/validate.sh
+
+      - name: Execute rollback
+        env:
+          FAILED_SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          TARGET_SOURCE_SHA: ${{ steps.resolve-previous.outputs.source_sha }}
+          ROLLBACK_EVIDENCE: rollback-evidence/production-verification.json
+          DEPLOYMENT_TARGET: ${{ env.DEPLOYMENT_TARGET }}
+        run: |
+          set -euo pipefail
+
+          ./ci/rollback/execute.sh
+
+      - name: Verify rollback
+        env:
+          ROLLBACK_REQUEST: rollback-request/request.json
+        run: |
+          set -euo pipefail
+
+          test -f "$ROLLBACK_REQUEST"
+
+          ./ci/deployment/verify.sh \
+            --request "$ROLLBACK_REQUEST"
+
+      - name: Record rollback verification evidence
+        env:
+          FAILED_SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          TARGET_SOURCE_SHA: ${{ steps.resolve-previous.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p evidence
+
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+
+          evidence = {
+              "schemaVersion": "1.0",
+              "project": "mini-write",
+              "gate": "rollback-verification",
+              "status": "passed",
+              "environment": "production",
+              "rollback": {
+                  "failedRelease": os.environ["FAILED_SOURCE_SHA"],
+                  "targetRelease": os.environ["TARGET_SOURCE_SHA"]
+              },
+              "timestamp": datetime.now(timezone.utc).isoformat()
+          }
+
+          with open(
+              "evidence/rollback-verification.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+              json.dump(evidence, f, indent=2)
+              f.write("\n")
+          PY
+
+          cat evidence/rollback-verification.json
+
+      - name: Upload rollback verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-rollback-verification-${{ needs.resolve-artifact.outputs.source_sha }}
+          path: evidence/rollback-verification.json
+          if-no-files-found: error
+          retention-days: 90

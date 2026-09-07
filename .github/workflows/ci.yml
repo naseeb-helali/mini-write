@@ -1,0 +1,658 @@
+name: Mini-Write CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository }}
+  IMAGE_NAME: mini-write
+  NODE_VERSION: "20"
+  COVERAGE_THRESHOLD: "70"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+
+  # ============================================================
+  # 0) VALIDATE
+  #
+  # Purpose:
+  #   Validate that the selected Runner can execute the job.
+  #
+  # Important:
+  #   Runner validation is an execution preflight.
+  #   It is NOT an application quality gate.
+  # ============================================================
+  validate:
+    name: Validate Execution Environment
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate runner
+        run: |
+          set -euo pipefail
+
+          echo "=== Runner ==="
+          echo "OS: $(uname -s)"
+          echo "Architecture: $(uname -m)"
+          echo "Runner: ${RUNNER_NAME:-unknown}"
+
+          echo "=== Required tools ==="
+          git --version
+          node --version
+          npm --version
+          docker --version
+
+      - name: Validate Node.js version
+        run: |
+          set -euo pipefail
+
+          node_major="$(node -p 'process.versions.node.split(".")[0]')"
+
+          if [ "$node_major" -lt 20 ]; then
+            echo "ERROR: Node.js 20 or newer is required."
+            exit 1
+          fi
+
+      - name: Validate Docker access
+        run: |
+          set -euo pipefail
+
+          docker version
+          docker info
+
+      - name: Validate repository structure
+        run: |
+          set -euo pipefail
+
+          test -f api/package.json
+          test -f api/package-lock.json
+
+          test -f worker/package.json
+          test -f worker/package-lock.json
+
+          test -f api/Dockerfile
+          test -f worker/Dockerfile
+
+          echo "Repository structure validation passed."
+
+
+  # ============================================================
+  # 1) QUALITY
+  #
+  # Runs independently from Security and Tests.
+  # ============================================================
+  quality:
+    name: Quality (${{ matrix.service }})
+
+    needs: validate
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api
+          - worker
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.service }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: npm ci
+
+      - name: Run lint
+        working-directory: ${{ matrix.service }}
+        run: npm run lint
+
+
+  # ============================================================
+  # 2) SECURITY
+  #
+  # Independent security gate.
+  # ============================================================
+  security:
+    name: Security (${{ matrix.service }})
+
+    needs: validate
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api
+          - worker
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.service }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: npm ci
+
+      - name: Dependency security audit
+        working-directory: ${{ matrix.service }}
+        run: npm audit --audit-level=critical
+
+
+  # ============================================================
+  # 3) TESTS
+  #
+  # Separate from Quality.
+  #
+  # Coverage remains a gate.
+  # ============================================================
+  tests:
+    name: Tests (${{ matrix.service }})
+
+    needs: validate
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api
+          - worker
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.service }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: npm ci
+
+      - name: Run tests with coverage
+        working-directory: ${{ matrix.service }}
+        run: npm test -- --coverage
+
+      - name: Enforce coverage gate
+        working-directory: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require("fs");
+
+          const file = "./coverage/coverage-summary.json";
+
+          if (!fs.existsSync(file)) {
+            console.error(`Coverage summary not found: ${file}`);
+            process.exit(1);
+          }
+
+          const coverage = require(file);
+          const threshold = Number(process.env.COVERAGE_THRESHOLD);
+          const actual = Number(coverage.total.lines.pct);
+
+          console.log(`Coverage: ${actual}%`);
+          console.log(`Required: ${threshold}%`);
+
+          if (!Number.isFinite(actual)) {
+            console.error("Coverage value is invalid.");
+            process.exit(1);
+          }
+
+          if (actual < threshold) {
+            console.error(
+              `Coverage gate failed: ${actual}% < ${threshold}%`
+            );
+            process.exit(1);
+          }
+
+          console.log("Coverage gate passed.");
+          NODE
+
+
+  # ============================================================
+  # 4) BUILD + SECURITY SCAN
+  #
+  # Build exactly once.
+  #
+  # PR:
+  #   Build validation only.
+  #
+  # main:
+  #   Build locally -> Scan -> Push (if main)
+  #
+  # The digest returned by build-push-action is the authoritative
+  # immutable identity of the published image.
+  # ============================================================
+
+  build:
+    name: Build Artifacts
+
+    needs:
+      - quality
+      - security
+      - tests
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    outputs:
+      api_digest: ${{ steps.api_push.outputs.digest }}
+      worker_digest: ${{ steps.worker_push.outputs.digest }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ----------------------------------------------------------
+      # API
+      # ----------------------------------------------------------
+      - name: Build API image (local)
+        id: api_build_local
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          push: false
+          load: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Scan API image (Security)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+      - name: Push API image (main only)
+        id: api_push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          push: true
+          load: false
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+          cache-from: type=gha,scope=api
+
+      # ----------------------------------------------------------
+      # WORKER
+      # ----------------------------------------------------------
+      - name: Build Worker image (local)
+        id: worker_build_local
+        uses: docker/build-push-action@v6
+        with:
+          context: ./worker
+          push: false
+          load: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,scope=worker,mode=max
+
+      - name: Scan Worker image (Security)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Push Worker image (main only)
+        id: worker_push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./worker
+          push: true
+          load: false
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=worker
+
+      # ----------------------------------------------------------
+      # MAIN ONLY
+      # ----------------------------------------------------------
+      - name: Verify published image digests
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          API_DIGEST: ${{ steps.api_push.outputs.digest }}
+          WORKER_DIGEST: ${{ steps.worker_push.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          echo "API digest: ${API_DIGEST}"
+          echo "Worker digest: ${WORKER_DIGEST}"
+
+          [[ "${API_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${WORKER_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          echo "Published artifact digests are valid."
+  # ============================================================
+  # 5) ARTIFACT VERIFICATION
+  #
+  # Final CI artifact gate.
+  #
+  # PR:
+  #   Verify locally built images.
+  #
+  # main:
+  #   Verify published images and their immutable digests.
+  # ============================================================
+  artifact-verification:
+    name: Verify Artifacts
+
+    needs: build
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify API artifact
+        run: |
+          set -euo pipefail
+
+          IMAGE="${REGISTRY}/${IMAGE_NAME}-api:${GITHUB_SHA}"
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            docker manifest inspect "${IMAGE}" > /dev/null
+            echo "API published artifact exists."
+          else
+            docker image inspect "${IMAGE}" > /dev/null
+            echo "API build artifact exists locally."
+          fi
+
+      - name: Verify Worker artifact
+        run: |
+          set -euo pipefail
+
+          IMAGE="${REGISTRY}/${IMAGE_NAME}-worker:${GITHUB_SHA}"
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            docker manifest inspect "${IMAGE}" > /dev/null
+            echo "Worker published artifact exists."
+          else
+            docker image inspect "${IMAGE}" > /dev/null
+            echo "Worker build artifact exists locally."
+          fi
+
+      - name: Verify source revision
+        run: |
+          set -euo pipefail
+
+          test -n "${GITHUB_SHA}"
+          echo "Source revision: ${GITHUB_SHA}"
+
+      - name: Verify build digests
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          API_DIGEST: ${{ needs.build.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.build.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          [[ "${API_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${WORKER_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          echo "API digest verified: ${API_DIGEST}"
+          echo "Worker digest verified: ${WORKER_DIGEST}"
+
+
+  # ============================================================
+  # 6) PUBLISH ARTIFACT MANIFEST
+  #
+  # Main only.
+  #
+  # The manifest is generated from:
+  #   - Git source SHA
+  #   - published image names
+  #   - published image tags
+  #   - immutable image digests
+  #
+  # The manifest itself is then stored as a CI artifact.
+  #
+  # It is NOT manually maintained.
+  # ============================================================
+  publish-manifest:
+    name: Publish Artifact Manifest
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    needs:
+      - build
+      - artifact-verification
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate artifact manifest
+        env:
+          API_DIGEST: ${{ needs.build.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.build.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          test -f ci/artifact-manifest.schema.json
+
+          mkdir -p artifact
+
+          cat > artifact/artifact-manifest.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "source": {
+              "commit": "${GITHUB_SHA}"
+            },
+            "release": {
+              "id": "${GITHUB_SHA}",
+              "version": "sha-${GITHUB_SHA::12}"
+            },
+            "artifacts": {
+              "api": {
+                "name": "${REGISTRY}/${IMAGE_NAME}-api",
+                "tag": "${GITHUB_SHA}",
+                "digest": "${API_DIGEST}"
+              },
+              "worker": {
+                "name": "${REGISTRY}/${IMAGE_NAME}-worker",
+                "tag": "${GITHUB_SHA}",
+                "digest": "${WORKER_DIGEST}"
+              }
+            }
+          }
+          EOF
+
+          echo "Generated artifact manifest:"
+          cat artifact/artifact-manifest.json
+
+      - name: Validate artifact manifest
+        env:
+          API_DIGEST: ${{ needs.build.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.build.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require("fs");
+
+          const manifestPath = "artifact/artifact-manifest.json";
+          const schemaPath = "ci/artifact-manifest.schema.json";
+
+          const manifest = JSON.parse(
+            fs.readFileSync(manifestPath, "utf8")
+          );
+
+          const schema = JSON.parse(
+            fs.readFileSync(schemaPath, "utf8")
+          );
+
+          const shaPattern = /^[0-9a-f]{40}$/;
+          const digestPattern = /^sha256:[0-9a-f]{64}$/;
+
+          function fail(message) {
+            console.error(`Manifest validation failed: ${message}`);
+            process.exit(1);
+          }
+
+          if (manifest.schemaVersion !== "1.0") {
+            fail("invalid schemaVersion");
+          }
+
+          if (manifest.project !== "mini-write") {
+            fail("invalid project");
+          }
+
+          if (!shaPattern.test(manifest.source?.commit || "")) {
+            fail("invalid source.commit");
+          }
+
+          if (manifest.release?.id !== manifest.source.commit) {
+            fail("release.id must equal source.commit");
+          }
+
+          if (!manifest.release?.version) {
+            fail("release.version is required");
+          }
+
+          for (const service of ["api", "worker"]) {
+            const artifact = manifest.artifacts?.[service];
+
+            if (!artifact) {
+              fail(`missing artifact: ${service}`);
+            }
+
+            if (!artifact.name) {
+              fail(`${service}.name is required`);
+            }
+
+            if (!shaPattern.test(artifact.tag || "")) {
+              fail(`${service}.tag must be a 40-character SHA`);
+            }
+
+            if (!digestPattern.test(artifact.digest || "")) {
+              fail(`${service}.digest must be a sha256 digest`);
+            }
+
+            if (artifact.tag !== manifest.source.commit) {
+              fail(`${service}.tag does not match source commit`);
+            }
+          }
+
+          if (manifest.source.commit !== process.env.GITHUB_SHA) {
+            fail("source.commit does not match GITHUB_SHA");
+          }
+
+          if (manifest.artifacts.api.digest !== process.env.API_DIGEST) {
+            fail("API digest does not match build output");
+          }
+
+          if (manifest.artifacts.worker.digest !== process.env.WORKER_DIGEST) {
+            fail("Worker digest does not match build output");
+          }
+
+          console.log("Artifact manifest validation passed.");
+          console.log(
+            JSON.stringify(manifest, null, 2)
+          );
+          NODE
+
+      - name: Upload artifact manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-artifact-${{ github.sha }}
+          path: artifact/artifact-manifest.json
+          if-no-files-found: error
+          retention-days: 30
