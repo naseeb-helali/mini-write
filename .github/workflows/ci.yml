@@ -305,6 +305,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check Internet Connection & Trivy Cache
+        run: |
+          echo "=== Testing Internet Connectivity ==="
+          curl -sI https://ghcr.io | head -n 1
+          
+          echo "=== Checking Trivy Cache Directory ==="
+          mkdir -p ~/.cache/trivy
+          ls -ld ~/.cache/trivy
       # ----------------------------------------------------------
       # API
       # ----------------------------------------------------------
@@ -325,13 +333,15 @@ jobs:
           cache-to: type=gha,scope=api,mode=max
 
       - name: Scan API image (Security)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          cache-dir: .trivycache/
+
       - name: Push API image (main only)
         id: api_push
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -367,13 +377,14 @@ jobs:
           cache-to: type=gha,scope=worker,mode=max
 
       - name: Scan Worker image (Security)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          cache-dir: .trivycache/
 
       - name: Push Worker image (main only)
         id: worker_push
