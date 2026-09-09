@@ -446,6 +446,13 @@ jobs:
               ;;
           esac
 
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create deployment request
         shell: bash
         env:
