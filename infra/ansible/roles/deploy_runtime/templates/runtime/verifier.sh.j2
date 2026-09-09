@@ -35,7 +35,8 @@ wait_for_readiness() {
 run_health_verification() {
 
     local log_file="$1"
-    local endpoint="$2"
+    
+    local endpoint="${2:-http://localhost/health/ready}"
 
     local start_time
 
@@ -68,6 +69,7 @@ run_health_verification() {
 
     fi
 
+
     deployment_event \
         "$log_file" \
         "SUCCESS" \
@@ -83,3 +85,18 @@ run_health_verification() {
 
     return 0
 }
+
+# ==========================================================
+# Direct Execution Guard
+# ==========================================================
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+
+    source "{{ deploy_root }}/scripts/runtime/telemetry.sh" 2>/dev/null || true
+    source "{{ deploy_root }}/scripts/runtime/metrics.sh" 2>/dev/null || true
+
+    LOG_FILE="${1:-{{ deploy_root }}/logs/deploy.log}"
+    ENDPOINT="${2:-http://localhost/health/ready}"
+
+    run_health_verification "$LOG_FILE" "$ENDPOINT"
+fi

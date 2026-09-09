@@ -7,8 +7,6 @@ deploy_directories:
   - state
   - logs
   - env
-  - proxy
-  - observability
 
 deployment_state_file: "{{ deploy_root }}/state/deployment_state.json"
 
@@ -19,6 +17,8 @@ deploy_scripts:
   - rollback.sh
 
 runtime_subdirectory: runtime
+
+runtime_nginx: proxy
 
 deploy_runtime_modules:
   - preflight.sh
@@ -36,14 +36,10 @@ deploy_runtime_directories:
   - state
   - logs
   - env
-  - proxy
-  - observability
 
 immutable_runtime_dirs:
   - compose
   - scripts
-  - proxy
-  - observability
 
 mutable_runtime_dirs:
   - state

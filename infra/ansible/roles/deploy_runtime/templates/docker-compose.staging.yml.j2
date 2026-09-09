@@ -39,7 +39,7 @@ services:
     ports:
       - "${HTTP_PORT:-80}:80"
     volumes:
-      - {{ deploy_root }}/proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - {{ deploy_root }}/compose/proxy/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
       - frontend-network
     depends_on:
@@ -114,24 +114,26 @@ services:
   # 5. Cache & Queue (Redis)
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes # Ensuring that tasks are not lost upon restart 
+    container_name: mw-redis
+    env_file:
+      - {{ deploy_root }}/env/.env.staging
+    command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD}" # Ensuring that tasks are not lost upon restart 
     volumes:
       - redis_data:/data
     networks:
       - backend-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
     logging:
-      driver: json-file
+      driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
     mem_limit: 256m
     cpus: "0.3"
-    restart: always
 
   # 4. Database (PostgreSQL) - State Store
   postgres:
@@ -287,6 +289,9 @@ services:
   grafana:
     image: grafana/grafana:11.0.0
     container_name: mw-grafana
+
+    env_file:
+      - {{ deploy_root }}/env/.env.staging
 
     restart: always
 

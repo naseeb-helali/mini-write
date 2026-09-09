@@ -64,48 +64,57 @@
 
 - name: Register GitHub Actions runner
   ansible.builtin.command:
-    argv:
-      - ./config.sh
-      - --url
-      - "{{ github_runner_repo_url }}"
-      - --token
-      - "{{ github_runner_token_response.json.token }}"
-      - --name
-      - "{{ github_runner_name }}"
-      - --labels
-      - "{{ github_runner_labels | join(',') }}"
-      - --unattended
-      - --replace
-      - "{{ '--disableupdate' if github_runner_disable_update else '' }}"
+    cmd: >-
+      ./config.sh
+      --url "{{ github_runner_repo_url }}"
+      --token "{{ github_runner_token_response.json.token }}"
+      --name "{{ github_runner_name }}"
+      --labels "{{ github_runner_labels | join(',') }}"
+      --unattended
+      --replace
+      {{ '--disableupdate' if github_runner_disable_update | default(false) else '' }}
     chdir: "{{ github_runner_install_dir }}"
   become: true
   become_user: "{{ deploy_user }}"
   when: not runner_registration.stat.exists
   no_log: true
 
-- name: Check if GitHub runner service exists
-  ansible.builtin.stat:
-    path: "/etc/systemd/system/actions.runner.{{ github_owner }}-{{ github_repo }}.{{ github_runner_name }}.service"
-  register: github_runner_service
+- name: Find installed GitHub runner service file
+  ansible.builtin.find:
+    paths: /etc/systemd/system
+    patterns: "actions.runner.{{ github_owner }}-{{ github_repo }}.*.service"
+  register: found_runner_services
 
 - name: Install GitHub runner service
   ansible.builtin.command:
     cmd: ./svc.sh install {{ deploy_user }}
     chdir: "{{ github_runner_install_dir }}"
   become: true
-  when: not github_runner_service.stat.exists
+  when: found_runner_services.matched == 0
 
 - name: Reload systemd daemon
   ansible.builtin.systemd:
     daemon_reload: true
   become: true
 
+- name: Re-find installed GitHub runner service file
+  ansible.builtin.find:
+    paths: /etc/systemd/system
+    patterns: "actions.runner.{{ github_owner }}-{{ github_repo }}.*.service"
+  register: current_runner_services
+
+- name: Set runner service name fact
+  ansible.builtin.set_fact:
+    runner_service_name: "{{ current_runner_services.files[0].path | basename | regex_replace('\\.service$', '') }}"
+  when: current_runner_services.matched > 0
+
 - name: Ensure GitHub runner service is enabled and running
   ansible.builtin.systemd:
-    name: "actions.runner.{{ github_owner }}-{{ github_repo }}.{{ github_runner_name }}"
+    name: "{{ runner_service_name }}"
     enabled: true
     state: started
   become: true
+  when: runner_service_name is defined
 
 - name: Get deploy user groups
   ansible.builtin.command:
@@ -143,8 +152,9 @@
 
 - name: Verify GitHub runner service status
   ansible.builtin.command:
-    cmd: systemctl is-active actions.runner.{{ github_owner }}-{{ github_repo }}.{{ github_runner_name }}
+    cmd: "systemctl is-active {{ runner_service_name }}"
   register: github_runner_service_status
   changed_when: false
   failed_when: github_runner_service_status.stdout != "active"
   become: true
+  when: runner_service_name is defined

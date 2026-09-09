@@ -1,36 +1,144 @@
 #!/bin/bash
+
+# ==========================================================
+# Mini-Write Rollback Runtime Orchestrator
+# ==========================================================
+#
+# Responsibilities
+#   • Coordinate rollback workflow
+#   • Load runtime modules
+#   • Propagate execution status
+# ==========================================================
+
 set -Eeuo pipefail
 
-LOG="{{ deploy_root }}/logs/deploy.log"
+LOCK="/var/lock/deploy.lock"
 STATE="{{ deploy_root }}/state/deployment_state.json"
+LOG="{{ deploy_root }}/logs/deploy.log"
+ENV_FILE="{{ deploy_root }}/env/.env.staging"
 
-# ==========================================================
+# =========================
 # Runtime Modules
-# ==========================================================
+# =========================
 
 source "{{ deploy_root }}/scripts/runtime/state.sh"
+source "{{ deploy_root }}/scripts/runtime/preflight.sh"
+source "{{ deploy_root }}/scripts/runtime/executor.sh"
+source "{{ deploy_root }}/scripts/runtime/verifier.sh"
+source "{{ deploy_root }}/scripts/runtime/recovery.sh"
+source "{{ deploy_root }}/scripts/runtime/telemetry.sh"
+source "{{ deploy_root }}/scripts/runtime/metrics.sh"
+source "{{ deploy_root }}/scripts/runtime/cleanup.sh"
 
+# =========================
+# Rollback Context
+# =========================
+
+cd {{ deploy_root }}/compose
+mkdir -p {{ deploy_root }}/logs
+
+exec >> {{ deploy_root }}/logs/deploy.log 2>&1
+echo ""
+echo "================================================"
+echo "$(date) - Starting rollback"
+echo "================================================"
+
+metrics_begin_session || {
+    deployment_error "$LOG" "Metrics runtime initialization failed."
+    exit 1
+}
+
+rollback_start_time="$(runtime_now)"
+
+# =========================
+# Acquire lock
+# =========================
+acquire_deployment_lock || {
+    deployment_event "$LOG" "ERROR" "DEPLOYMENT_LOCK_FAILED" "Failed to acquire deployment lock."
+    exit 1
+}
+
+# =========================
+# Load state and previous versions
+# =========================
 load_state "$LOG"
 
 PREV_API="$(get_previous_api)"
 PREV_WORKER="$(get_previous_worker)"
 
 if [ -z "$PREV_API" ] || [ "$PREV_API" == "null" ]; then
-  echo "❌ No previous version found — cannot rollback"
-  exit 1
+    deployment_error "$LOG" "No previous API version found — cannot rollback."
+    release_deployment_lock
+    exit 1
 fi
 
 if [ -z "$PREV_WORKER" ] || [ "$PREV_WORKER" == "null" ]; then
-  echo "❌ Worker rollback not available"
-  exit 1
+    deployment_error "$LOG" "No previous Worker version found — cannot rollback."
+    release_deployment_lock
+    exit 1
 fi
 
-echo "🔁 Rolling back to previous version..."
+deployment_info "$LOG" "Rollback target: API=$PREV_API, Worker=$PREV_WORKER"
 
-export API_IMAGE=$PREV_API
-export WORKER_IMAGE=$PREV_WORKER
+# =========================
+# Preflight validation
+# =========================
+run_preflight "$LOG" "$PREV_API" "$PREV_WORKER" "$ENV_FILE" || {
+    deployment_error "$LOG" "Preflight validation failed for rollback."
+    release_deployment_lock
+    fail_deployment_session "$rollback_start_time"
+    exit 1
+}
 
-cd {{ deploy_root }}/compose
-docker compose -p mini-write --env-file {{ deploy_root }}/env/.env.staging -f {{ deploy_root }}/compose/docker-compose.staging.yml up -d
+# =========================
+# Pull images
+# =========================
+run_image_pull "{{ deploy_root }}/compose/docker-compose.staging.yml" "$ENV_FILE" || {
+    deployment_error "$LOG" "Failed to pull rollback images."
+    release_deployment_lock
+    fail_deployment_session "$rollback_start_time"
+    exit 1
+}
 
-echo "✅ Rollback complete"
+# =========================
+# Deploy previous versions
+# =========================
+export API_IMAGE="$PREV_API"
+export WORKER_IMAGE="$PREV_WORKER"
+
+run_compose_deployment "{{ deploy_root }}/compose/docker-compose.staging.yml" "$ENV_FILE" || {
+    deployment_error "$LOG" "Rollback execution failed."
+    release_deployment_lock
+    fail_deployment_session "$rollback_start_time"
+    exit 1
+}
+
+# =========================
+# Health verification
+# =========================
+run_health_verification "$LOG" "http://localhost/health/ready" || {
+    deployment_error "$LOG" "Rollback health verification failed."
+    release_deployment_lock
+    fail_deployment_session "$rollback_start_time"
+    exit 1
+}
+
+# =========================
+# Update state (now the previous version becomes current)
+# =========================
+update_state "$LOG" "$PREV_API" "$PREV_WORKER" || {
+    deployment_error "$LOG" "Failed to update deployment state after rollback."
+    release_deployment_lock
+    fail_deployment_session "$rollback_start_time"
+    exit 1
+}
+
+# =========================
+# Finalize
+# =========================
+deployment_success "$LOG" "Rollback completed successfully."
+cleanup_images "$LOG" || deployment_warning "$LOG" "Docker image cleanup failed."
+
+complete_deployment_session "$rollback_start_time" || deployment_warning "$LOG" "Metrics export failed."
+
+release_deployment_lock
