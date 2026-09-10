@@ -6,32 +6,32 @@ module "ecs" {
   aws_region   = var.aws_region
 
 
-  api_secrets = [
-    {
-      name      = "POSTGRES_PASSWORD"
-      valueFrom = "${module.secrets.database_secret_arn}:password::"
-    },
-    {
-      name      = "REDIS_PASSWORD"
-      valueFrom = "${module.secrets.redis_secret_arn}:password::"
-    },
-    {
-      name      = "JWT_SECRET"
-      valueFrom = "${module.secrets.jwt_secret_arn}:secret::"
-    }
-  ]
+api_secrets = [
+  {
+    name      = "POSTGRES_PASSWORD"
+    valueFrom = "${module.secrets.database_secret_arn}:password::"
+  },
+  {
+    name      = "REDIS_PASSWORD"
+    valueFrom = "${module.secrets.redis_secret_arn}:password::"
+  },
+  {
+    name      = "JWT_SECRET"
+    valueFrom = "${module.secrets.jwt_secret_arn}:secret::"
+  }
+]
 
 
-  worker_secrets = [
-    {
-      name      = "POSTGRES_PASSWORD"
-      valueFrom = "${module.secrets.database_secret_arn}:password::"
-    },
-    {
-      name      = "REDIS_PASSWORD"
-      valueFrom = "${module.secrets.redis_secret_arn}:password::"
-    }
-  ]
+worker_secrets = [
+  {
+    name      = "POSTGRES_PASSWORD"
+    valueFrom = "${module.secrets.database_secret_arn}:password::"
+  },
+  {
+    name      = "REDIS_PASSWORD"
+    valueFrom = "${module.secrets.redis_secret_arn}:password::"
+  }
+]
 
   execution_role_arn   = module.iam.ecs_task_execution_role_arn
   api_task_role_arn    = module.iam.api_task_role_arn

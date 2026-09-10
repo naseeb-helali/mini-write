@@ -55,7 +55,7 @@ permissions:
 
 env:
   TERRAFORM_VERSION: ">= 1.9.0, < 2.0.0"
-  TERRAFORM_ROOT: "/home/janad/shared/Sharing/mini-write/infra/terraform/environments/staging"
+  TERRAFORM_ROOT: "/home/janad/shared/Sharing/mini-write/infra/terraform"
   TERRAFORM_ENVIRONMENT: "staging"
 
 jobs:
