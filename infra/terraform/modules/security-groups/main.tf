@@ -34,9 +34,9 @@ resource "aws_vpc_security_group_ingress_rule" "alb_http" {
 
   security_group_id = aws_security_group.alb.id
 
-  cidr_ipv4 = split(":", each.value)[0]
-  from_port = 80
-  to_port   = 80
+  cidr_ipv4   = split(":", each.value)[0]
+  from_port   = 80
+  to_port     = 80
   ip_protocol = "tcp"
 
   description = "HTTP access to public ALB."
@@ -50,9 +50,9 @@ resource "aws_vpc_security_group_ingress_rule" "alb_https" {
 
   security_group_id = aws_security_group.alb.id
 
-  cidr_ipv4 = split(":", each.value)[0]
-  from_port = 443
-  to_port   = 443
+  cidr_ipv4   = split(":", each.value)[0]
+  from_port   = 443
+  to_port     = 443
   ip_protocol = "tcp"
 
   description = "HTTPS access to public ALB."
@@ -90,8 +90,8 @@ resource "aws_vpc_security_group_ingress_rule" "ecs_from_alb" {
 
   referenced_security_group_id = aws_security_group.alb.id
 
-  from_port = var.ecs_ingress_port
-  to_port   = var.ecs_ingress_port
+  from_port   = var.ecs_ingress_port
+  to_port     = var.ecs_ingress_port
   ip_protocol = "tcp"
 
   description = "Allow application traffic from ALB only."
@@ -129,8 +129,8 @@ resource "aws_vpc_security_group_ingress_rule" "rds_from_ecs" {
 
   referenced_security_group_id = aws_security_group.ecs.id
 
-  from_port = var.rds_port
-  to_port   = var.rds_port
+  from_port   = var.rds_port
+  to_port     = var.rds_port
   ip_protocol = "tcp"
 
   description = "Allow PostgreSQL traffic from ECS only."
@@ -168,8 +168,8 @@ resource "aws_vpc_security_group_ingress_rule" "redis_from_ecs" {
 
   referenced_security_group_id = aws_security_group.ecs.id
 
-  from_port = var.redis_port
-  to_port   = var.redis_port
+  from_port   = var.redis_port
+  to_port     = var.redis_port
   ip_protocol = "tcp"
 
   description = "Allow Redis traffic from ECS only."

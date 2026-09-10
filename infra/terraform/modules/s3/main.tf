@@ -19,7 +19,7 @@ resource "aws_s3_bucket" "this" {
   tags = merge(
     local.common_tags,
     {
-      Name   = each.value
+      Name    = each.value
       Purpose = each.key
     }
   )
