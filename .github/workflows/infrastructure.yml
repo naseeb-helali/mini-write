@@ -54,7 +54,7 @@ permissions:
   id-token: write
 
 env:
-  TERRAFORM_VERSION: "1.9.8"
+  TERRAFORM_VERSION: ">= 1.9.0, < 2.0.0"
   TERRAFORM_ROOT: "infra/terraform"
   TERRAFORM_ENVIRONMENT: "staging"
 
@@ -165,7 +165,7 @@ jobs:
       - mini-write
 
     concurrency:
-      group: mini-write-terraform-${{ env.TERRAFORM_ENVIRONMENT }}
+      group: mini-write-terraform-staging
       cancel-in-progress: false
 
     outputs:
@@ -291,9 +291,9 @@ jobs:
       - plan
 
     if: >
-      (github.event_name == 'push' &&
-       github.ref == 'refs/heads/main')
-      ||
+      # (github.event_name == 'push' &&
+      #  github.ref == 'refs/heads/main')
+      # &&
       (github.event_name == 'workflow_dispatch' &&
        github.event.inputs.action == 'apply')
 
@@ -307,7 +307,7 @@ jobs:
       name: staging-infrastructure
 
     concurrency:
-      group: mini-write-terraform-${{ env.TERRAFORM_ENVIRONMENT }}
+      group: mini-write-terraform-staging
       cancel-in-progress: false
 
     defaults:

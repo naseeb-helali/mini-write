@@ -176,7 +176,7 @@ services:
   # 6. Object Storage (MinIO) - S3 emulator
   storage:
     image: minio/minio
-    container_name: mw-storage
+    container_name: storage
     ports:
       - "19000:9000" # API (Internal 9000 -> External 19000)
       - "19001:9001" # Console (Internal 9001 -> External 19001)

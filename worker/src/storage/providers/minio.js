@@ -3,7 +3,7 @@ const Minio = require('minio');
 const minioClient = new Minio.Client({
   endPoint:
     process.env.MINIO_ENDPOINT ||
-    'mw-storage',
+    'storage',
 
   port:
     parseInt(process.env.MINIO_PORT, 10) ||
