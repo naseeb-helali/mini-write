@@ -25,7 +25,7 @@ module "rds" {
 
   multi_az = true
 
-  backup_retention_period = 7
+  backup_retention_period = 0
 
   storage_encrypted = true
 

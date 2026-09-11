@@ -1,7 +1,7 @@
 resource "aws_iam_role_policy" "api_s3" {
   name = "${var.project_name}-${var.environment}-api-s3"
 
-  role = module.iam.api_task_role_arn
+  role = module.iam.api_task_role_name
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -38,7 +38,7 @@ resource "aws_iam_role_policy" "api_s3" {
 resource "aws_iam_role_policy" "worker_s3" {
   name = "${var.project_name}-${var.environment}-worker-s3"
 
-  role = module.iam.worker_task_role_arn
+  role = module.iam.worker_task_role_name
 
   policy = jsonencode({
     Version = "2012-10-17"
