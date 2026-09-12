@@ -7,10 +7,11 @@ module "github_oidc" {
 
   plan_subjects = [
     "repo:${var.github_repository}:pull_request",
-    "repo:${var.github_repository}:ref:refs/heads/main"
+    "repo:${var.github_repository}:ref:refs/heads/main",
+    "repo:${var.github_repository}:environment:staging"
   ]
 
-  apply_subject = "repo:${var.github_repository}:environment:staging-infrastructure"
+  apply_subject = "repo:${var.github_repository}:environment:staging"
 
   tags = {
     Project     = "mini-write"
