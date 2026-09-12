@@ -131,7 +131,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          terraform init \
+          terraform init -backend=false \
             -input=false \
             -upgrade=false
 
@@ -140,7 +140,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          terraform validate
+          terraform validate -backend=false
 
 
   # ============================================================================
