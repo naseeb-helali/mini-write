@@ -28,3 +28,8 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "tfstate_bucket_name" {
+  description = "Name of the S3 bucket storing Terraform state."
+  type        = string
+}

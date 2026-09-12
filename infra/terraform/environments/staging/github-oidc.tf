@@ -3,6 +3,8 @@ module "github_oidc" {
 
   project = "mini-write"
 
+  tfstate_bucket_name = "mini-write-terraform-state54913687"
+
   plan_subjects = [
     "repo:${var.github_repository}:pull_request",
     "repo:${var.github_repository}:ref:refs/heads/main"

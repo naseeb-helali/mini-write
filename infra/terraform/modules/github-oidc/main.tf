@@ -1,3 +1,35 @@
+data "aws_s3_bucket" "tfstate" {
+  bucket = var.tfstate_bucket_name
+}
+
+data "aws_iam_policy_document" "tfstate_access" {
+  statement {
+    sid    = "S3StateBucketAccess"
+    effect = "Allow"
+    actions = [
+      "s3:ListBucket",
+      "s3:GetBucketLocation"
+    ]
+    resources = [
+      data.aws_s3_bucket.tfstate.arn
+    ]
+  }
+
+  statement {
+    sid    = "S3StateObjectAccess"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject"
+    ]
+    resources = [
+      "${data.aws_s3_bucket.tfstate.arn}/*"
+    ]
+  }
+}
+
+
 data "aws_partition" "current" {}
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -111,4 +143,17 @@ resource "aws_iam_role" "iac_apply" {
       Name = "${var.project}-github-iac-apply"
     }
   )
+}
+
+
+resource "aws_iam_role_policy" "iac_plan_tfstate" {
+  name   = "${var.project}-iac-plan-tfstate-policy"
+  role   = aws_iam_role.iac_plan.name
+  policy = data.aws_iam_policy_document.tfstate_access.json
+}
+
+resource "aws_iam_role_policy" "iac_apply_tfstate" {
+  name   = "${var.project}-iac-apply-tfstate-policy"
+  role   = aws_iam_role.iac_apply.name
+  policy = data.aws_iam_policy_document.tfstate_access.json
 }
