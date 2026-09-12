@@ -219,6 +219,10 @@ jobs:
       - name: Terraform Plan
         id: plan
         working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+
+        env:
+          TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+
         run: |
           set -euo pipefail
 
@@ -389,6 +393,9 @@ jobs:
 
       - name: Terraform Apply
         working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
+        env:
+          TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+          
         run: |
           set -euo pipefail
 
