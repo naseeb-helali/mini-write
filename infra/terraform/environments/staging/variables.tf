@@ -101,6 +101,7 @@ variable "redis_node_type" {
 variable "github_repository" {
   description = "GitHub repository in OWNER/REPOSITORY format."
   type        = string
+  default     = "naseeb-helali/mini-write"
 
   validation {
     condition = can(
