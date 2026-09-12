@@ -31,3 +31,17 @@ yarn-error.log*
 
 # 5. Local Storage (MinIO local data)
 /data/minio/
+
+# Terraform local state files
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Terraform directory
+.terraform/
+.terraform.lock.hcl
+
+# Terraform vars
+*.tfvars
+*.tfvars.json

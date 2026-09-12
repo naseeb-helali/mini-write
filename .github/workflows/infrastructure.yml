@@ -163,6 +163,9 @@ jobs:
       - linux
       - x64
       - mini-write
+    
+    environment:
+      name: staging
 
     concurrency:
       group: mini-write-terraform-staging
@@ -301,7 +304,7 @@ jobs:
       - mini-write
 
     environment:
-      name: staging-infrastructure
+      name: staging
 
     concurrency:
       group: mini-write-terraform-staging
