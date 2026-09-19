@@ -3,9 +3,9 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project   = var.project_name
+      Project  = var.project_name
       ManagedBy = "terraform"
-      Purpose   = "terraform-bootstrap"
+      Purpose  = "terraform-bootstrap"
     }
   }
 }

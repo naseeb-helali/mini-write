@@ -29,6 +29,6 @@ module "rds" {
 
   storage_encrypted = true
 
-  deletion_protection = true
-  skip_final_snapshot = false
+  deletion_protection = false
+  skip_final_snapshot = true
 }

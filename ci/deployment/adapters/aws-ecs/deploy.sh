@@ -54,8 +54,20 @@ SOURCE_SHA="$(request_release_source)"
 API_DIGEST="$(request_api_digest)"
 WORKER_DIGEST="$(request_worker_digest)"
 
-API_IMAGE="${ARTIFACT_REGISTRY:-}/${API_IMAGE_NAME:-mini-write-api}@${API_DIGEST}"
-WORKER_IMAGE="${ARTIFACT_REGISTRY:-}/${WORKER_IMAGE_NAME:-mini-write-worker}@${WORKER_DIGEST}"
+# حساب الـ registry URL بناءً على نوع الـ registry
+if [[ -n "${ARTIFACT_REGISTRY:-}" ]]; then
+  # استخدام القيمة الممررة من الـ environment
+  REGISTRY_URL="$ARTIFACT_REGISTRY"
+elif [[ "${REGISTRY_TYPE:-}" == "ecr" ]]; then
+  # حساب ECR URL تلقائيًا
+  REGISTRY_URL="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com${ECR_REPO_PREFIX:+/${ECR_REPO_PREFIX}}"
+else
+  # الافتراضي GHCR
+  REGISTRY_URL="ghcr.io"
+fi
+
+API_IMAGE="${REGISTRY_URL}/${API_IMAGE_NAME:-mini-write-api}@${API_DIGEST}"
+WORKER_IMAGE="${REGISTRY_URL}/${WORKER_IMAGE_NAME:-mini-write-worker}@${WORKER_DIGEST}"
 
 deployment_log "AWS ECS deployment adapter"
 deployment_log "Region: $AWS_REGION"

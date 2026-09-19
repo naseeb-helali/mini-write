@@ -1,6 +1,6 @@
-aws_region   = "us-east-1"
+aws_region  = "us-east-1"
 project_name = "mini-write"
-environment  = "staging"
+environment = "staging"
 
 vpc_cidr = "10.20.0.0/16"
 
@@ -30,6 +30,6 @@ single_nat_gateway = true
 
 github_repository = "naseeb-helali/mini-write"
 
-postgres_username = "miniwrite_admin"
+postgres_username="miniwrite_admin"
 
-postgres_database = "miniwrite_db"
+postgres_database="miniwrite_db"

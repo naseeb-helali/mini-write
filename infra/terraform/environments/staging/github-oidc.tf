@@ -13,6 +13,19 @@ module "github_oidc" {
 
   apply_subject = "repo:${var.github_repository}:environment:staging"
 
+  # CI subjects (ECR push only)
+  ci_subjects = [
+    "repo:${var.github_repository}:ref:refs/heads/main",
+    "repo:${var.github_repository}:environment:staging"
+  ]
+
+  # CD subjects (ECR pull + ECS deploy)
+  cd_subjects = [
+    "repo:${var.github_repository}:ref:refs/heads/main",
+    "repo:${var.github_repository}:environment:staging",
+    "repo:${var.github_repository}:environment:production"
+  ]
+
   tags = {
     Project     = "mini-write"
     Environment = "staging"

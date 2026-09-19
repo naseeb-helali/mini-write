@@ -421,6 +421,13 @@ jobs:
 
     env:
       DEPLOYMENT_TARGET: ${{ vars.DEPLOYMENT_TARGET }}
+      REGISTRY_TYPE: ${{ vars.REGISTRY_TYPE }}  # ghcr أو ecr
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPO_PREFIX: ${{ vars.ECR_REPO_PREFIX }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_SERVICE_API: ${{ vars.ECS_SERVICE_API }}
+      ECS_SERVICE_WORKER: ${{ vars.ECS_SERVICE_WORKER }}
 
     steps:
 
@@ -446,12 +453,24 @@ jobs:
               ;;
           esac
 
+      - name: Log in to Amazon ECR
+        if: vars.REGISTRY_TYPE == 'ecr'
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Log in to GHCR
+        if: vars.REGISTRY_TYPE == 'ghcr'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
+
+      - name: Configure AWS credentials (OIDC)
+        if: vars.REGISTRY_TYPE == 'ecr' || vars.DEPLOYMENT_TARGET == 'aws-ecs'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/mini-write-github-cd-runner
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Create deployment request
         shell: bash
@@ -493,6 +512,18 @@ jobs:
 
       - name: Deploy through deployment adapter
         shell: bash
+        env:
+          ARTIFACT_REGISTRY: ${{ vars.REGISTRY_TYPE == 'ecr' && format('{0}.dkr.ecr.{1}.amazonaws.com{2}', vars.AWS_ACCOUNT_ID, vars.AWS_REGION, vars.ECR_REPO_PREFIX != '' && format('/{0}', vars.ECR_REPO_PREFIX) || '') || 'ghcr.io' }}
+          REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+          AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_REPO_PREFIX: ${{ env.ECR_REPO_PREFIX }}
+          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
+          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
+          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          AWS_ECS_API_TASK_DEFINITION_FAMILY: mini-write-api
+          AWS_ECS_WORKER_TASK_DEFINITION_FAMILY: mini-write-worker
         run: |
           set -euo pipefail
 
@@ -503,6 +534,18 @@ jobs:
 
       - name: Verify staging through deployment adapter
         shell: bash
+        env:
+          ARTIFACT_REGISTRY: ${{ vars.REGISTRY_TYPE == 'ecr' && format('{0}.dkr.ecr.{1}.amazonaws.com{2}', vars.AWS_ACCOUNT_ID, vars.AWS_REGION, vars.ECR_REPO_PREFIX != '' && format('/{0}', vars.ECR_REPO_PREFIX) || '') || 'ghcr.io' }}
+          REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+          AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_REPO_PREFIX: ${{ env.ECR_REPO_PREFIX }}
+          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
+          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
+          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          AWS_ECS_API_ROLLBACK_TASK_DEFINITION: mini-write-api
+          AWS_ECS_WORKER_ROLLBACK_TASK_DEFINITION: mini-write-worker
         run: |
           set -euo pipefail
 
@@ -855,6 +898,14 @@ jobs:
 
     env:
       DEPLOYMENT_TARGET: ${{ vars.DEPLOYMENT_TARGET }}
+      REGISTRY_TYPE: ${{ vars.REGISTRY_TYPE }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPO_PREFIX: ${{ vars.ECR_REPO_PREFIX }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_SERVICE_API: ${{ vars.ECS_SERVICE_API }}
+      ECS_SERVICE_WORKER: ${{ vars.ECS_SERVICE_WORKER }}
+      IMAGE_NAME: mini-write
 
     steps:
 
@@ -931,6 +982,13 @@ jobs:
           ./ci/promotion/promote.sh \
             --request promotion-request/request.json
 
+      - name: Configure AWS credentials (OIDC)
+        if: vars.REGISTRY_TYPE == 'ecr' || vars.DEPLOYMENT_TARGET == 'aws-ecs'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/mini-write-github-cd-runner
+          aws-region: ${{ vars.AWS_REGION }}
+
       - name: Build approved deployment request
         shell: bash
         env:
@@ -997,6 +1055,15 @@ jobs:
 
       - name: Deploy approved artifact
         shell: bash
+        env:
+          REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+          AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_REPO_PREFIX: ${{ env.ECR_REPO_PREFIX }}
+          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
+          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
+          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
 
@@ -1007,6 +1074,15 @@ jobs:
 
       - name: Verify production
         shell: bash
+        env:
+          REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+          AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_REPO_PREFIX: ${{ env.ECR_REPO_PREFIX }}
+          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
+          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
+          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
 
@@ -1133,6 +1209,14 @@ jobs:
 
     env:
       DEPLOYMENT_TARGET: ${{ vars.DEPLOYMENT_TARGET }}
+      REGISTRY_TYPE: ${{ vars.REGISTRY_TYPE }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPO_PREFIX: ${{ vars.ECR_REPO_PREFIX }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_SERVICE_API: ${{ vars.ECS_SERVICE_API }}
+      ECS_SERVICE_WORKER: ${{ vars.ECS_SERVICE_WORKER }}
+      IMAGE_NAME: mini-write
 
     steps:
 
@@ -1157,6 +1241,13 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Configure AWS credentials (OIDC)
+        if: vars.REGISTRY_TYPE == 'ecr' || vars.DEPLOYMENT_TARGET == 'aws-ecs'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/mini-write-github-cd-runner
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Resolve previous known-good production release
         id: resolve-previous
@@ -1195,6 +1286,14 @@ jobs:
           TARGET_SOURCE_SHA: ${{ steps.resolve-previous.outputs.source_sha }}
           ROLLBACK_EVIDENCE: rollback-evidence/production-verification.json
           DEPLOYMENT_TARGET: ${{ env.DEPLOYMENT_TARGET }}
+          REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+          AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_REPO_PREFIX: ${{ env.ECR_REPO_PREFIX }}
+          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
+          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
+          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
 
@@ -1203,6 +1302,14 @@ jobs:
       - name: Verify rollback
         env:
           ROLLBACK_REQUEST: rollback-request/request.json
+          REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+          AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_REPO_PREFIX: ${{ env.ECR_REPO_PREFIX }}
+          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
+          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
+          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
 

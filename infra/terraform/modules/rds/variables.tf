@@ -91,7 +91,7 @@ variable "deletion_protection" {
 variable "skip_final_snapshot" {
   description = "Skip final snapshot on destruction."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "storage_encrypted" {
