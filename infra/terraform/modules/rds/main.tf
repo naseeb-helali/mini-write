@@ -16,9 +16,7 @@ resource "aws_db_subnet_group" "this" {
 
   tags = merge(
     local.common_tags,
-    {
-      Name = "${var.project_name}-${var.environment}-db-subnet-group"
-    }
+    { Name = "${var.project_name}-${var.environment}-db-subnet-group" }
   )
 }
 
