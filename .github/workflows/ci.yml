@@ -233,7 +233,7 @@ jobs:
           push: false
           load: true
           tags: |
-            ${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com/{2}',vars.AWS_ACCOUNT_ID,vars.AWS_REGION,vars.ECR_REPO_PREFIX) }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+            ${{ vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -244,7 +244,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: |
-            ${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com/{2}',vars.AWS_ACCOUNT_ID,vars.AWS_REGION,vars.ECR_REPO_PREFIX) }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+            ${{ vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
           format: table
           exit-code: 0
           severity: CRITICAL
@@ -260,7 +260,7 @@ jobs:
           push: true
           load: false
           tags: |
-            ${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com/{2}',vars.AWS_ACCOUNT_ID,vars.AWS_REGION,vars.ECR_REPO_PREFIX) }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+            ${{ vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -277,7 +277,7 @@ jobs:
           push: false
           load: true
           tags: |
-            ${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com/{2}',vars.AWS_ACCOUNT_ID,vars.AWS_REGION,vars.ECR_REPO_PREFIX) }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+            ${{ vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -288,7 +288,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: |
-            ${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com/{2}',vars.AWS_ACCOUNT_ID,vars.AWS_REGION,vars.ECR_REPO_PREFIX) }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+            ${{ vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
           format: table
           exit-code: 0
           severity: CRITICAL
@@ -304,7 +304,7 @@ jobs:
           push: true
           load: false
           tags: |
-            ${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com/{2}',vars.AWS_ACCOUNT_ID,vars.AWS_REGION,vars.ECR_REPO_PREFIX) }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+            ${{ vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -352,7 +352,7 @@ jobs:
       - name: Verify API artifact
         run: |
           set -euo pipefail
-          REGISTRY_PREFIX="${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com/{2}',vars.AWS_ACCOUNT_ID,vars.AWS_REGION,vars.ECR_REPO_PREFIX) }}"
+          REGISTRY_PREFIX="${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID,vars.AWS_REGION)}}"
           IMAGE="${REGISTRY_PREFIX}/${{ env.IMAGE_NAME }}-api:${GITHUB_SHA}"
           if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
             docker manifest inspect "${IMAGE}" > /dev/null
@@ -365,7 +365,7 @@ jobs:
       - name: Verify Worker artifact
         run: |
           set -euo pipefail
-          REGISTRY_PREFIX="${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com/{2}',vars.AWS_ACCOUNT_ID,vars.AWS_REGION,vars.ECR_REPO_PREFIX) }}"
+          REGISTRY_PREFIX="${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID,vars.AWS_REGION)}}"
           IMAGE="${REGISTRY_PREFIX}/${{ env.IMAGE_NAME }}-worker:${GITHUB_SHA}"
           if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
             docker manifest inspect "${IMAGE}" > /dev/null
@@ -413,7 +413,7 @@ jobs:
           set -euo pipefail
           test -f ci/artifact-manifest.schema.json
           mkdir -p artifact
-          REGISTRY_PREFIX="${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com/{2}',vars.AWS_ACCOUNT_ID,vars.AWS_REGION,vars.ECR_REPO_PREFIX) }}"
+          REGISTRY_PREFIX="${{vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID,vars.AWS_REGION)}}"
           cat > artifact/artifact-manifest.json <<EOF
           {
             "schemaVersion": "1.0",

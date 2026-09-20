@@ -60,7 +60,7 @@ if [[ -n "${ARTIFACT_REGISTRY:-}" ]]; then
   REGISTRY_URL="$ARTIFACT_REGISTRY"
 elif [[ "${REGISTRY_TYPE:-}" == "ecr" ]]; then
   # حساب ECR URL تلقائيًا
-  REGISTRY_URL="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com${ECR_REPO_PREFIX:+/${ECR_REPO_PREFIX}}"
+  REGISTRY_URL="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 else
   # الافتراضي GHCR
   REGISTRY_URL="ghcr.io"

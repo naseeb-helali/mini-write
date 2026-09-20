@@ -37,8 +37,8 @@ worker_secrets = [
   api_task_role_arn    = module.iam.api_task_role_arn
   worker_task_role_arn = module.iam.worker_task_role_arn
 
-api_image = "${module.ecr.repository_urls["mini-write/mini-write-api"]}:latest"
-worker_image = "${module.ecr.repository_urls["mini-write/mini-write-worker"]}:latest"
+api_image = "${module.ecr.repository_urls["mini-write-api"]}:latest"
+worker_image = "${module.ecr.repository_urls["mini-write-worker"]}:latest"
 
   application_subnet_ids = module.vpc.private_app_subnet_ids
 

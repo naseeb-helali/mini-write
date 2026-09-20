@@ -5,8 +5,8 @@ module "ecr" {
   environment  = var.environment
 
   repository_names = [
-    "mini-write/mini-write-api",
-    "mini-write/mini-write-worker"
+    "mini-write-api",
+    "mini-write-worker"
   ]
 
   image_tag_mutability = "IMMUTABLE"
