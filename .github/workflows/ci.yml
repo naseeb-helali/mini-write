@@ -240,11 +240,31 @@ jobs:
           cache-from: type=gha,scope=api
           cache-to: type=gha,scope=api,mode=max
 
+      - name: Verify API image before Trivy
+        shell: bash
+        env:
+          IMAGE_REF: ${{ vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          echo "REGISTRY_TYPE=<${{ vars.REGISTRY_TYPE }}>"
+          echo "IMAGE_REF=<${IMAGE_REF}>"
+
+          docker image inspect "${IMAGE_REF}" >/dev/null
+
+          docker image inspect "${IMAGE_REF}" \
+            --format 'RepoTags={{json .RepoTags}}'
+
+          docker image inspect "${IMAGE_REF}" \
+            --format 'ImageID={{.Id}}'
+
+          docker image inspect "${IMAGE_REF}" \
+            --format 'Revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
+
       - name: Scan API image (Security)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: |
-            ${{ vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+          image-ref: ${{ vars.REGISTRY_TYPE == 'ghcr' && 'ghcr.io' || format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
           format: table
           exit-code: 0
           severity: CRITICAL
