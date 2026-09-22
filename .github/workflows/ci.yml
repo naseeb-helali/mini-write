@@ -321,6 +321,7 @@ jobs:
         env:
           REGISTRY_TYPE: ${{ steps.registry.outputs.registry_type }}
           REGISTRY_PREFIX: ${{ steps.registry.outputs.registry_prefix }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           set -euo pipefail
 
@@ -329,9 +330,22 @@ jobs:
           echo "Registry: ${REGISTRY_PREFIX}"
 
           if [ "${REGISTRY_TYPE}" = "ecr" ]; then
-            curl -fsSI "https://${REGISTRY_PREFIX}" | head -n 1
+            echo "Checking ECR authentication..."
+
+            aws ecr get-login-password \
+              --region "${AWS_REGION}" \
+            | docker login \
+                --username AWS \
+                --password-stdin "${REGISTRY_PREFIX}"
+
+            echo "ECR authentication successful."
+
           else
+            echo "Checking GHCR connectivity..."
+
             curl -fsSI "https://ghcr.io" | head -n 1
+
+            echo "GHCR connectivity check passed."
           fi
 
           echo "Registry connectivity check passed."
