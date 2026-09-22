@@ -674,16 +674,26 @@ jobs:
           echo "API image: ${IMAGE_REF}"
           echo "Expected digest: ${EXPECTED_DIGEST}"
 
+          INSPECT_OUTPUT="$(docker buildx imagetools inspect "${IMAGE_REF}")"
+
+          echo "=== imagetools inspect ==="
+          printf '%s\n' "${INSPECT_OUTPUT}"
+
           REMOTE_DIGEST="$(
-            docker buildx imagetools inspect "${IMAGE_REF}" |
+            printf '%s\n' "${INSPECT_OUTPUT}" |
             sed -n 's/^Digest: //p' |
-            head -n 1
+            head -n 1 |
+            tr -d '\r'
           )"
+
+          echo "=== Digest diagnostics ==="
+          printf 'Expected: <%s>\n' "${EXPECTED_DIGEST}"
+          printf 'Remote:   <%s>\n' "${REMOTE_DIGEST}"
+          printf 'Expected length: %s\n' "${#EXPECTED_DIGEST}"
+          printf 'Remote length:   %s\n' "${#REMOTE_DIGEST}"
 
           if [ "${REMOTE_DIGEST}" != "${EXPECTED_DIGEST}" ]; then
             echo "::error::Remote API digest does not match published digest."
-            echo "Expected: ${EXPECTED_DIGEST}"
-            echo "Remote:   ${REMOTE_DIGEST}"
             exit 1
           fi
 
