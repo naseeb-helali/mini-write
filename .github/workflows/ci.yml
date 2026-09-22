@@ -681,7 +681,7 @@ jobs:
 
           REMOTE_DIGEST="$(
             printf '%s\n' "${INSPECT_OUTPUT}" |
-            sed -n 's/^Digest: //p' |
+            sed -n 's/^Digest:[[:space:]]*//p' |
             head -n 1 |
             tr -d '\r'
           )"
@@ -694,6 +694,8 @@ jobs:
 
           if [ "${REMOTE_DIGEST}" != "${EXPECTED_DIGEST}" ]; then
             echo "::error::Remote API digest does not match published digest."
+            echo "Expected: ${EXPECTED_DIGEST}"
+            echo "Remote:   ${REMOTE_DIGEST}"
             exit 1
           fi
 
@@ -713,9 +715,10 @@ jobs:
           echo "Expected digest: ${EXPECTED_DIGEST}"
 
           REMOTE_DIGEST="$(
-            docker buildx imagetools inspect "${IMAGE_REF}" |
-            sed -n 's/^Digest: //p' |
-            head -n 1
+          docker buildx imagetools inspect "${IMAGE_REF}" |
+          sed -n 's/^Digest:[[:space:]]*//p' |
+          head -n 1 |
+          tr -d '\r'
           )"
 
           if [ "${REMOTE_DIGEST}" != "${EXPECTED_DIGEST}" ]; then
