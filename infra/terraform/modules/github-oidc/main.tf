@@ -319,31 +319,39 @@ resource "aws_iam_role" "ci_runner" {
 data "aws_iam_policy_document" "ci_ecr_policy" {
   count = length(var.ci_subjects) > 0 ? 1 : 0
 
+  # ==========================================================
+  # ECR Authentication
+  # ==========================================================
   statement {
-    sid    = "ECRAuth"
+    sid    = "ECRAuthentication"
     effect = "Allow"
+
     actions = [
-      "ecr:GetAuthorizationToken",
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:GetDownloadUrlForLayer",
-      "ecr:BatchGetImage",
-      "ecr:DescribeImages",
-      "ecr:ListImages"
+      "ecr:GetAuthorizationToken"
     ]
+
     resources = ["*"]
   }
 
+  # ==========================================================
+  # ECR Push
+  # ==========================================================
   statement {
     sid    = "ECRPush"
     effect = "Allow"
+
     actions = [
+      "ecr:BatchCheckLayerAvailability",
       "ecr:InitiateLayerUpload",
       "ecr:UploadLayerPart",
       "ecr:CompleteLayerUpload",
-      "ecr:PutImage"
+      "ecr:PutImage",
+      "ecr:BatchGetImage"
     ]
+
     resources = [
-      "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.project}/*"
+      "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.project}-api",
+      "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.project}-worker"
     ]
   }
 }
