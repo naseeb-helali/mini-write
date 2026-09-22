@@ -547,7 +547,7 @@ jobs:
 
           rm -f "${PUSH_LOG}"
 
-          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$/ ]]; then
+          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "::error::Unable to extract Worker image digest."
             exit 1
           fi
