@@ -115,7 +115,8 @@ register_task_definition() {
               proxyConfiguration,
               inferenceAccelerators,
               ephemeralStorage,
-              runtimePlatform
+              runtimePlatform,
+              tags
             }
           | .containerDefinitions[0].image = $image
           | with_entries(select(.value != null))
@@ -148,6 +149,32 @@ WORKER_TASK_DEFINITION="$(
 )"
 
 deployment_log "Worker task definition: $WORKER_TASK_DEFINITION"
+
+OUTPUT_DIR="${DEPLOYMENT_OUTPUT_DIR:-deployment-output}"
+
+mkdir -p "$OUTPUT_DIR"
+
+cat > "$OUTPUT_DIR/deployment.json" <<EOF
+{
+  "schemaVersion": "1.0",
+  "deploymentTarget": "aws-ecs",
+  "cluster": "$AWS_ECS_CLUSTER",
+  "api": {
+    "service": "$AWS_ECS_API_SERVICE",
+    "taskDefinitionArn": "$API_TASK_DEFINITION"
+  },
+  "worker": {
+    "service": "$AWS_ECS_WORKER_SERVICE",
+    "taskDefinitionArn": "$WORKER_TASK_DEFINITION"
+  },
+  "artifact": {
+    "apiDigest": "$API_DIGEST",
+    "workerDigest": "$WORKER_DIGEST"
+  }
+}
+EOF
+
+deployment_log "Deployment identity written to $OUTPUT_DIR/deployment.json"
 
 deployment_log "Updating API ECS service."
 

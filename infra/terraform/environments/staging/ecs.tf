@@ -17,7 +17,7 @@ api_secrets = [
   },
   {
     name      = "JWT_SECRET"
-    valueFrom = "${module.secrets.jwt_secret_arn}:secret::"
+    valueFrom = "${module.secrets.jwt_secret_arn}:jwt_secret::"
   }
 ]
 
@@ -55,7 +55,7 @@ worker_image = "${module.ecr.repository_urls["mini-write-worker"]}:latest"
   input_bucket_name     = module.s3.bucket_names["input"]
   processed_bucket_name = module.s3.bucket_names["processed"]
 
-  api_desired_count    = 2
+  api_desired_count    = 1
   worker_desired_count = 1
 
   api_target_group_arn = module.alb.target_group_arn

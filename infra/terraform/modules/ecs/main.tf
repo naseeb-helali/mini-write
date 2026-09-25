@@ -252,6 +252,13 @@ resource "aws_ecs_service" "api" {
 
   launch_type = "FARGATE"
 
+  lifecycle {
+    ignore_changes = [
+      desired_count,
+      task_definition
+    ]
+  }
+
   load_balancer {
     target_group_arn = var.api_target_group_arn
     container_name   = var.api_container_name
@@ -268,12 +275,6 @@ resource "aws_ecs_service" "api" {
     assign_public_ip = false
   }
 
-  lifecycle {
-    ignore_changes = [
-      desired_count
-    ]
-  }
-
   tags = local.common_tags
 }
 
@@ -287,6 +288,13 @@ resource "aws_ecs_service" "worker" {
   desired_count = var.worker_desired_count
 
   launch_type = "FARGATE"
+
+  lifecycle {
+    ignore_changes = [
+      desired_count,
+      task_definition
+    ]
+  }
 
   network_configuration {
     subnets = var.application_subnet_ids

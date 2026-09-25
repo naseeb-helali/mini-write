@@ -113,3 +113,20 @@ variable "github_repository" {
     error_message = "github_repository must use OWNER/REPOSITORY format."
   }
 }
+
+
+
+variable "db_password" {
+  type      = string
+  sensitive = true
+}
+
+variable "jwt_secret" {
+  type      = string
+  sensitive = true
+}
+
+variable "redis_password" {
+  type      = string
+  sensitive = true
+}

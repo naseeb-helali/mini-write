@@ -109,7 +109,7 @@ variable "ecs_security_group_id" {
 
 variable "api_desired_count" {
   type    = number
-  default = 2
+  default = 1
 }
 
 variable "worker_desired_count" {

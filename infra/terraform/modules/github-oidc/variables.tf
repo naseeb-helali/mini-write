@@ -3,6 +3,22 @@ variable "project" {
   type        = string
 }
 
+variable "project_name" {
+  type = string
+}
+
+variable "aws_region" {
+  description = "Name of the S3 bucket storing Terraform state."
+  type        = string
+  default = "us-east-1"
+}
+
+variable "environment" {
+  description = "Name of the S3 bucket storing Terraform state."
+  type        = string
+  default = "staging"
+}
+
 variable "plan_subjects" {
   description = "GitHub OIDC subjects allowed to assume the Terraform plan role."
   type        = list(string)
@@ -34,27 +50,11 @@ variable "tfstate_bucket_name" {
   type        = string
 }
 
-variable "aws_region" {
-  description = "Name of the S3 bucket storing Terraform state."
-  type        = string
-  default = "us-east-1"
-}
-
-variable "environment" {
-  description = "Name of the S3 bucket storing Terraform state."
-  type        = string
-  default = "staging"
-}
-
-
-
-
 variable "ci_subjects" {
   description = "GitHub OIDC subjects allowed to assume the CI runner role (for ECR push, etc.)."
   type        = list(string)
   default     = []
 }
-
 
 variable "cd_subjects" {
   description = "GitHub OIDC subjects allowed to assume the CD runner role (for ECR pull + ECS deploy)."

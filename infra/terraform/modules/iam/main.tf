@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
 
@@ -84,3 +86,97 @@ resource "aws_iam_role" "worker_task" {
   )
 }
 
+data "aws_iam_policy_document" "ecs_task_secrets" {
+  statement {
+    sid    = "ReadApplicationSecrets"
+    effect = "Allow"
+
+    actions = [
+      "secretsmanager:GetSecretValue"
+    ]
+
+    resources = [
+      "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.project_name}-${var.environment}/*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task_secrets" {
+  role   = aws_iam_role.ecs_task_execution.name
+  policy = data.aws_iam_policy_document.ecs_task_secrets.json
+}
+
+
+resource "aws_iam_role_policy" "api_s3" {
+  name = "${var.project_name}-${var.environment}-api-s3"
+
+  role = aws_iam_role.api_task.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Sid    = "ListInputBucket"
+        Effect = "Allow"
+
+        Action = [
+          "s3:ListBucket"
+        ]
+
+        Resource = [
+          var.input_bucket_arn
+        ]
+      },
+      {
+        Sid    = "UploadInputObjects"
+        Effect = "Allow"
+
+        Action = [
+          "s3:PutObject"
+        ]
+
+        Resource = [
+          "${var.input_bucket_arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "worker_s3" {
+  name = "${var.project_name}-${var.environment}-worker-s3"
+
+  role = aws_iam_role.worker_task.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Sid    = "ReadInputObjects"
+        Effect = "Allow"
+
+        Action = [
+          "s3:GetObject"
+        ]
+
+        Resource = [
+          "${var.input_bucket_arn}/*"
+        ]
+      },
+      {
+        Sid    = "WriteProcessedObjects"
+        Effect = "Allow"
+
+        Action = [
+          "s3:PutObject"
+        ]
+
+        Resource = [
+          "${var.processed_bucket_arn}/*"
+        ]
+      }
+    ]
+  })
+}

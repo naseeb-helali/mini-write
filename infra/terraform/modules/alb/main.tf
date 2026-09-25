@@ -3,45 +3,6 @@ locals {
 }
 
 # ==============================================================================
-# ALB Security Group
-# ==============================================================================
-
-resource "aws_security_group" "alb" {
-  name        = "${local.name_prefix}-alb"
-  description = "Security group for the Mini-Write Application Load Balancer"
-  vpc_id      = var.vpc_id
-
-  tags = merge(
-    var.tags,
-    {
-      Name = "${local.name_prefix}-alb"
-    }
-  )
-}
-
-# HTTP ingress
-resource "aws_vpc_security_group_ingress_rule" "alb_http" {
-  security_group_id = aws_security_group.alb.id
-
-  cidr_ipv4   = "0.0.0.0/0"
-  from_port   = 80
-  to_port     = 80
-  ip_protocol = "tcp"
-
-  description = "Allow HTTP traffic from the Internet"
-}
-
-# ALB outbound traffic
-resource "aws_vpc_security_group_egress_rule" "alb_all" {
-  security_group_id = aws_security_group.alb.id
-
-  cidr_ipv4   = "0.0.0.0/0"
-  ip_protocol = "-1"
-
-  description = "Allow outbound traffic from ALB"
-}
-
-# ==============================================================================
 # Application Load Balancer
 # ==============================================================================
 
@@ -51,7 +12,7 @@ resource "aws_lb" "this" {
   load_balancer_type = "application"
 
   security_groups = [
-    aws_security_group.alb.id
+    var.alb_security_group_id
   ]
 
   subnets = var.public_subnet_ids

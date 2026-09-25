@@ -1,7 +1,8 @@
 module "github_oidc" {
   source = "../../modules/github-oidc"
 
-  project = "mini-write"
+  project = var.project_name
+  project_name = var.project_name
 
   tfstate_bucket_name = "mini-write-terraform-state54913687"
 

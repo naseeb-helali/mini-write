@@ -8,6 +8,11 @@ variable "environment" {
   type        = string
 }
 
+variable "aws_region" {
+  description = "Deployment region."
+  type        = string
+}
+
 variable "ecr_repository_arns" {
   description = "ECR repository ARNs accessible by ECS task execution role."
   type        = list(string)
@@ -30,4 +35,12 @@ variable "enable_s3_access" {
   description = "Whether ECS application tasks require S3 access."
   type        = bool
   default     = false
+}
+
+variable "input_bucket_arn" {
+  type = string
+}
+
+variable "processed_bucket_arn" {
+  type = string
 }

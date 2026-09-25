@@ -21,7 +21,7 @@ variable "public_subnet_ids" {
 variable "api_container_port" {
   description = "Port exposed by the API container"
   type        = number
-  default     = 3000
+  default     = 80
 }
 
 variable "health_check_path" {
@@ -34,4 +34,8 @@ variable "tags" {
   description = "Additional resource tags"
   type        = map(string)
   default     = {}
+}
+variable "alb_security_group_id" {
+  description = "Security group ID attached to the Application Load Balancer."
+  type        = string
 }

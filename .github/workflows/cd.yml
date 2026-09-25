@@ -31,6 +31,7 @@ on:
 permissions:
   contents: read
   actions: read
+  id-token: write
 
 env:
   CI_WORKFLOW: ci.yml
@@ -421,12 +422,19 @@ jobs:
 
     env:
       DEPLOYMENT_TARGET: ${{ vars.DEPLOYMENT_TARGET }}
-      REGISTRY_TYPE: ${{ vars.REGISTRY_TYPE }}  # ghcr أو ecr
+      REGISTRY_TYPE: ${{ vars.REGISTRY_TYPE }}
+
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
-      ECS_SERVICE_API: ${{ vars.ECS_SERVICE_API }}
-      ECS_SERVICE_WORKER: ${{ vars.ECS_SERVICE_WORKER }}
+
+      AWS_ECS_CLUSTER: ${{ vars.AWS_ECS_CLUSTER }}
+      AWS_ECS_API_SERVICE: ${{ vars.AWS_ECS_API_SERVICE }}
+      AWS_ECS_WORKER_SERVICE: ${{ vars.AWS_ECS_WORKER_SERVICE }}
+
+      AWS_ECS_API_TASK_DEFINITION_FAMILY: ${{ vars.AWS_ECS_API_TASK_DEFINITION_FAMILY }}
+      AWS_ECS_WORKER_TASK_DEFINITION_FAMILY: ${{ vars.AWS_ECS_WORKER_TASK_DEFINITION_FAMILY }}
+
+      API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
 
     steps:
 
@@ -452,6 +460,39 @@ jobs:
               ;;
           esac
 
+      - name: Validate staging ECS configuration
+        if: env.DEPLOYMENT_TARGET == 'aws-ecs'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_vars=(
+            AWS_REGION
+            AWS_ECS_CLUSTER
+            AWS_ECS_API_SERVICE
+            AWS_ECS_WORKER_SERVICE
+            AWS_ECS_API_TASK_DEFINITION_FAMILY
+            AWS_ECS_WORKER_TASK_DEFINITION_FAMILY
+            API_HEALTH_URL
+          )
+
+          for name in "${required_vars[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name is required for staging ECS deployment"
+              exit 1
+            fi
+          done
+
+          echo "Staging ECS configuration validated."
+
+      - name: Configure AWS credentials (OIDC)
+        if: vars.REGISTRY_TYPE == 'ecr' || vars.DEPLOYMENT_TARGET == 'aws-ecs'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/mini-write-github-cd-runner
+          role-session-name: mini-write-staging-deployment
+
       - name: Log in to Amazon ECR
         if: vars.REGISTRY_TYPE == 'ecr'
         uses: aws-actions/amazon-ecr-login@v2
@@ -463,13 +504,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
-
-      - name: Configure AWS credentials (OIDC)
-        if: vars.REGISTRY_TYPE == 'ecr' || vars.DEPLOYMENT_TARGET == 'aws-ecs'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/mini-write-github-cd-runner
-          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Create deployment request
         shell: bash
@@ -514,14 +548,18 @@ jobs:
         env:
           ARTIFACT_REGISTRY: ${{ vars.REGISTRY_TYPE == 'ecr' && format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) || 'ghcr.io' }}
           REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+
           AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
-          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
-          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+
+          AWS_ECS_CLUSTER: ${{ env.AWS_ECS_CLUSTER }}
+          AWS_ECS_API_SERVICE: ${{ env.AWS_ECS_API_SERVICE }}
+          AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
+
+          AWS_ECS_API_TASK_DEFINITION_FAMILY: ${{ env.AWS_ECS_API_TASK_DEFINITION_FAMILY }}
+          AWS_ECS_WORKER_TASK_DEFINITION_FAMILY: ${{ env.AWS_ECS_WORKER_TASK_DEFINITION_FAMILY }}
+
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          AWS_ECS_API_TASK_DEFINITION_FAMILY: mini-write-api
-          AWS_ECS_WORKER_TASK_DEFINITION_FAMILY: mini-write-worker
         run: |
           set -euo pipefail
 
@@ -533,25 +571,32 @@ jobs:
       - name: Verify staging through deployment adapter
         shell: bash
         env:
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
+
           ARTIFACT_REGISTRY: ${{ vars.REGISTRY_TYPE == 'ecr' && format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) || 'ghcr.io' }}
           REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+
           AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
-          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
-          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+
+          AWS_ECS_CLUSTER: ${{ env.AWS_ECS_CLUSTER }}
+          AWS_ECS_API_SERVICE: ${{ env.AWS_ECS_API_SERVICE }}
+          AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
+
+          API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
+
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          AWS_ECS_API_ROLLBACK_TASK_DEFINITION: mini-write-api
-          AWS_ECS_WORKER_ROLLBACK_TASK_DEFINITION: mini-write-worker
+
         run: |
           set -euo pipefail
 
           test -x ./ci/deployment/verify.sh
+          test -f deployment-output/deployment.json
 
           ./ci/deployment/verify.sh \
             --request deployment-request/request.json
 
-      - name: Record promotion eligibility evidence
+      - name: Create staging promotion evidence
         shell: bash
         env:
           SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
@@ -562,60 +607,69 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p evidence
+          mkdir -p staging-evidence/evidence
 
-          python3 - <<'PY'
-          import json
-          import os
-          from datetime import datetime, timezone
+          API_TASK_DEFINITION="$(
+            jq -er '.api.taskDefinitionArn' \
+              deployment-output/deployment.json
+          )"
 
-          source_sha = os.environ["SOURCE_SHA"]
+          WORKER_TASK_DEFINITION="$(
+            jq -er '.worker.taskDefinitionArn' \
+              deployment-output/deployment.json
+          )"
 
-          evidence = {
-              "schemaVersion": "1.0",
-              "project": "mini-write",
-              "gate": "promotion-eligibility",
-              "status": "passed",
-              "environment": "staging",
-              "release": {
-                  "id": os.environ["RELEASE_ID"],
-                  "source": source_sha,
-                  "version": os.environ["VERSION"]
+          cat > staging-evidence/evidence/promotion-eligibility.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "gate": "promotion-eligibility",
+            "status": "passed",
+            "environment": "staging",
+            "release": {
+              "id": "$RELEASE_ID",
+              "source": "$SOURCE_SHA",
+              "version": "$VERSION"
+            },
+            "artifact": {
+              "api": {
+                "tag": "$SOURCE_SHA",
+                "digest": "$API_DIGEST"
               },
-              "artifact": {
-                  "api": {
-                      "tag": source_sha,
-                      "digest": os.environ["API_DIGEST"]
-                  },
-                  "worker": {
-                      "tag": source_sha,
-                      "digest": os.environ["WORKER_DIGEST"]
-                  }
+              "worker": {
+                "tag": "$SOURCE_SHA",
+                "digest": "$WORKER_DIGEST"
+              }
+            },
+            "deployment": {
+              "target": "aws-ecs",
+              "cluster": "${AWS_ECS_CLUSTER}",
+              "api": {
+                "service": "${AWS_ECS_API_SERVICE}",
+                "taskDefinitionArn": "$API_TASK_DEFINITION"
               },
-              "evidence": {
-                  "stagingDeployed": True,
-                  "stagingVerified": True,
-                  "artifactIdentityVerified": True
-              },
-              "timestamp": datetime.now(timezone.utc).isoformat()
+              "worker": {
+                "service": "${AWS_ECS_WORKER_SERVICE}",
+                "taskDefinitionArn": "$WORKER_TASK_DEFINITION"
+              }
+            },
+            "evidence": {
+              "stagingDeployed": true,
+              "stagingVerified": true,
+              "artifactIdentityVerified": true,
+              "applicationReadinessVerified": true
+            },
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
+          EOF
 
-          with open(
-              "evidence/promotion-eligibility.json",
-              "w",
-              encoding="utf-8"
-          ) as f:
-              json.dump(evidence, f, indent=2)
-              f.write("\n")
-          PY
-
-          cat evidence/promotion-eligibility.json
+          cat staging-evidence/evidence/promotion-eligibility.json
 
       - name: Upload promotion eligibility evidence
         uses: actions/upload-artifact@v4
         with:
           name: mini-write-promotion-eligibility-${{ needs.resolve-artifact.outputs.source_sha }}
-          path: evidence/promotion-eligibility.json
+          path: staging-evidence/evidence/promotion-eligibility.json
           if-no-files-found: error
           retention-days: 30
 

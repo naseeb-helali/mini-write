@@ -1,3 +1,16 @@
+locals {
+  name_prefix = "${var.project_name}-${var.environment}"
+
+  common_tags = merge(
+    var.tags,
+    {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  )
+}
+
 data "aws_s3_bucket" "tfstate" {
   bucket = var.tfstate_bucket_name
 }
@@ -420,10 +433,13 @@ resource "aws_iam_role" "cd_runner" {
 data "aws_iam_policy_document" "cd_runner_policy" {
   count = length(var.cd_subjects) > 0 ? 1 : 0
 
-  # ECR Access (pull only for CD)
+  # ==========================================================
+  # ECR Access
+  # ==========================================================
   statement {
     sid    = "ECRAuth"
     effect = "Allow"
+
     actions = [
       "ecr:GetAuthorizationToken",
       "ecr:BatchCheckLayerAvailability",
@@ -432,20 +448,26 @@ data "aws_iam_policy_document" "cd_runner_policy" {
       "ecr:DescribeImages",
       "ecr:ListImages"
     ]
+
     resources = ["*"]
   }
 
+  # ==========================================================
   # ECS Access
+  # ==========================================================
   statement {
     sid    = "ECSAccess"
     effect = "Allow"
+
     actions = [
       "ecs:DescribeServices",
       "ecs:DescribeTaskDefinition",
+      "ecs:DescribeTasks",
       "ecs:ListTasks",
       "ecs:RegisterTaskDefinition",
       "ecs:UpdateService"
     ]
+
     resources = [
       "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/${var.project}*",
       "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.project}*",
@@ -453,18 +475,49 @@ data "aws_iam_policy_document" "cd_runner_policy" {
     ]
   }
 
-  # CloudWatch Logs (لـ ECS logs)
+  # ==========================================================
+  # Pass only the ECS task roles used by staging
+  # ==========================================================
+  statement {
+    sid    = "PassECSTaskRoles"
+    effect = "Allow"
+
+    actions = [
+      "iam:PassRole"
+    ]
+
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-${var.environment}-ecs-task-execution-role",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-${var.environment}-api-task-role",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-${var.environment}-worker-task-role"
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+
+      values = [
+        "ecs-tasks.amazonaws.com"
+      ]
+    }
+  }
+
+  # ==========================================================
+  # CloudWatch Logs
+  # ==========================================================
   statement {
     sid    = "CloudWatchLogs"
     effect = "Allow"
+
     actions = [
       "logs:CreateLogStream",
       "logs:PutLogEvents",
       "logs:DescribeLogGroups",
       "logs:DescribeLogStreams"
     ]
+
     resources = [
-      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/ecs/${var.project}*:*"
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/ecs/${local.name_prefix}*:*"
     ]
   }
 }
