@@ -85,7 +85,8 @@ register_task_definition() {
     local image="$2"
 
     local current_task_definition
-    local new_task_definition
+    local tmp_json
+    tmp_json="$(mktemp)"
 
     current_task_definition="$(
         aws ecs describe-task-definition \
@@ -93,41 +94,50 @@ register_task_definition() {
             --region "$AWS_REGION"
     )"
 
-    new_task_definition="$(
-        echo "$current_task_definition" |
-        jq \
-          --arg image "$image" \
-          '
-          .taskDefinition
-          | {
-              family,
-              taskRoleArn,
-              executionRoleArn,
-              networkMode,
-              containerDefinitions,
-              volumes,
-              placementConstraints,
-              requiresCompatibilities,
-              cpu,
-              memory,
-              pidMode,
-              ipcMode,
-              proxyConfiguration,
-              inferenceAccelerators,
-              ephemeralStorage,
-              runtimePlatform,
-              tags
-            }
-          | .containerDefinitions[0].image = $image
-          | with_entries(select(.value != null))
-          '
-    )"
+    echo "$current_task_definition" | jq \
+        --arg image "$image" \
+        '
+        .taskDefinition
+        | {
+            family,
+            taskRoleArn,
+            executionRoleArn,
+            networkMode,
+            containerDefinitions,
+            volumes,
+            placementConstraints,
+            requiresCompatibilities,
+            cpu,
+            memory,
+            pidMode,
+            ipcMode,
+            proxyConfiguration,
+            inferenceAccelerators,
+            ephemeralStorage,
+            runtimePlatform
+          }
+        | .containerDefinitions[0].image = $image
+        | with_entries(select(.value != null))
+        ' > "$tmp_json"
 
-    echo "$new_task_definition" |
+    if ! jq empty "$tmp_json" 2>/dev/null; then
+        deployment_log "ERROR: Invalid JSON generated for task definition family: $family"
+        cat "$tmp_json"
+        rm -f "$tmp_json"
+        exit 1
+    fi
+
+    local registered_arn
+    registered_arn="$(
         aws ecs register-task-definition \
-            --cli-input-json file:///dev/stdin \
+            --cli-input-json "file://$tmp_json" \
             --region "$AWS_REGION" |
         jq -r '.taskDefinition.taskDefinitionArn'
+    )"
+
+    rm -f "$tmp_json"
+
+    echo "$registered_arn"
 }
 
 deployment_log "Registering API task definition."
