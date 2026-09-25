@@ -559,7 +559,6 @@ jobs:
           AWS_ECS_API_TASK_DEFINITION_FAMILY: ${{ env.AWS_ECS_API_TASK_DEFINITION_FAMILY }}
           AWS_ECS_WORKER_TASK_DEFINITION_FAMILY: ${{ env.AWS_ECS_WORKER_TASK_DEFINITION_FAMILY }}
 
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
 
@@ -584,8 +583,6 @@ jobs:
           AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
 
           API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
-
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
 
         run: |
           set -euo pipefail
@@ -1112,7 +1109,6 @@ jobs:
           ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
           ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
           ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
 
@@ -1130,7 +1126,6 @@ jobs:
           ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
           ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
           ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
 
@@ -1339,7 +1334,6 @@ jobs:
           ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
           ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
           ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
 
@@ -1354,7 +1348,6 @@ jobs:
           ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
           ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
           ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
 

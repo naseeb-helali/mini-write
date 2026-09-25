@@ -452,26 +452,40 @@ data "aws_iam_policy_document" "cd_runner_policy" {
     resources = ["*"]
   }
 
+
   # ==========================================================
-  # ECS Access
+  # ECS Task Definition Access (Requires Wildcard Resource)
   # ==========================================================
   statement {
-    sid    = "ECSAccess"
+    sid    = "ECSTaskDefinitionGlobalAccess"
+    effect = "Allow"
+
+    actions = [
+      "ecs:DescribeTaskDefinition",
+      "ecs:RegisterTaskDefinition"
+    ]
+
+    resources = ["*"]
+  }
+
+  # ==========================================================
+  # ECS Cluster and Service Access
+  # ==========================================================
+  statement {
+    sid    = "ECSServiceAndClusterAccess"
     effect = "Allow"
 
     actions = [
       "ecs:DescribeServices",
-      "ecs:DescribeTaskDefinition",
       "ecs:DescribeTasks",
       "ecs:ListTasks",
-      "ecs:RegisterTaskDefinition",
       "ecs:UpdateService"
     ]
 
     resources = [
       "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/${var.project}*",
-      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.project}*",
-      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.project}*"
+      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.project}*/*",
+      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.project}*"
     ]
   }
 
