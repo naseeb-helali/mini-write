@@ -50,6 +50,14 @@ deployment_require_nonempty \
     "AWS_ECS_WORKER_SERVICE" \
     "${AWS_ECS_WORKER_SERVICE:-}"
 
+deployment_require_nonempty \
+    "AWS_ECS_API_TASK_DEFINITION_FAMILY" \
+    "${AWS_ECS_API_TASK_DEFINITION_FAMILY:-}"
+
+deployment_require_nonempty \
+    "AWS_ECS_WORKER_TASK_DEFINITION_FAMILY" \
+    "${AWS_ECS_WORKER_TASK_DEFINITION_FAMILY:-}"
+
 SOURCE_SHA="$(request_release_source)"
 API_DIGEST="$(request_api_digest)"
 WORKER_DIGEST="$(request_worker_digest)"
@@ -158,21 +166,17 @@ register_task_definition() {
 
 deployment_log "Registering API task definition."
 
-API_TASK_DEFINITION="$(
-    register_task_definition \
-        "$AWS_ECS_API_TASK_DEFINITION_FAMILY" \
-        "$API_IMAGE"
-)"
+if ! API_TASK_DEFINITION="$(register_task_definition "$AWS_ECS_API_TASK_DEFINITION_FAMILY" "$API_IMAGE")"; then
+    deployment_die "Failed to register API task definition."
+fi
 
 deployment_log "API task definition: $API_TASK_DEFINITION"
 
 deployment_log "Registering Worker task definition."
 
-WORKER_TASK_DEFINITION="$(
-    register_task_definition \
-        "$AWS_ECS_WORKER_TASK_DEFINITION_FAMILY" \
-        "$WORKER_IMAGE"
-)"
+if ! WORKER_TASK_DEFINITION="$(register_task_definition "$AWS_ECS_WORKER_TASK_DEFINITION_FAMILY" "$WORKER_IMAGE")"; then
+    deployment_die "Failed to register Worker task definition."
+fi
 
 deployment_log "Worker task definition: $WORKER_TASK_DEFINITION"
 
