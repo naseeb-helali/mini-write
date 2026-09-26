@@ -84,60 +84,76 @@ register_task_definition() {
     local family="$1"
     local image="$2"
 
-    local current_task_definition
-    local tmp_json
-    tmp_json="$(mktemp)"
+    local tmp_desc_json
+    local tmp_reg_json
+    tmp_desc_json="$(mktemp)"
+    tmp_reg_json="$(mktemp)"
 
-    current_task_definition="$(
-        aws ecs describe-task-definition \
+    echo "[deployment] Fetching current task definition for family: ${family}" >&2
+
+    # 1. جلب الـ Task Definition الحالي وتخزينه في ملف مؤقت
+    if ! aws ecs describe-task-definition \
             --task-definition "$family" \
-            --region "$AWS_REGION"
-    )"
-
-    echo "$current_task_definition" | jq \
-        --arg image "$image" \
-        '
-        .taskDefinition
-        | {
-            family,
-            taskRoleArn,
-            executionRoleArn,
-            networkMode,
-            containerDefinitions,
-            volumes,
-            placementConstraints,
-            requiresCompatibilities,
-            cpu,
-            memory,
-            pidMode,
-            ipcMode,
-            proxyConfiguration,
-            inferenceAccelerators,
-            ephemeralStorage,
-            runtimePlatform
-          }
-        | .containerDefinitions[0].image = $image
-        | with_entries(select(.value != null))
-        ' > "$tmp_json"
-
-    if ! jq empty "$tmp_json" 2>/dev/null; then
-        deployment_log "ERROR: Invalid JSON generated for task definition family: $family"
-        cat "$tmp_json"
-        rm -f "$tmp_json"
-        exit 1
+            --region "$AWS_REGION" > "$tmp_desc_json" 2>&2; then
+        echo "[ERROR] Failed to fetch task definition for family: ${family}" >&2
+        cat "$tmp_desc_json" >&2
+        rm -f "$tmp_desc_json" "$tmp_reg_json"
+        return 1
     fi
 
-    local registered_arn
-    registered_arn="$(
-        aws ecs register-task-definition \
-            --cli-input-json "file://$tmp_json" \
-            --region "$AWS_REGION" |
-        jq -r '.taskDefinition.taskDefinitionArn'
-    )"
+    # 2. تحويل الـ JSON وتجهيز الـ Payload الصالح للتسجيل
+    jq \
+      --arg image "$image" \
+      '
+      .taskDefinition
+      | {
+          family,
+          taskRoleArn,
+          executionRoleArn,
+          networkMode,
+          containerDefinitions,
+          volumes,
+          placementConstraints,
+          requiresCompatibilities,
+          cpu,
+          memory,
+          pidMode,
+          ipcMode,
+          proxyConfiguration,
+          inferenceAccelerators,
+          ephemeralStorage,
+          runtimePlatform
+        }
+      | .containerDefinitions[0].image = $image
+      | with_entries(select(.value != null))
+      ' "$tmp_desc_json" > "$tmp_reg_json"
 
-    rm -f "$tmp_json"
+    # 3. التحقق من صحة بنية الـ JSON المولد
+    if ! jq empty "$tmp_reg_json" 2>/dev/null; then
+        echo "[ERROR] Generated Task Definition JSON is invalid for family: ${family}" >&2
+        echo "=== Generated JSON Content ===" >&2
+        cat "$tmp_reg_json" >&2
+        echo "==============================" >&2
+        rm -f "$tmp_desc_json" "$tmp_reg_json"
+        return 1
+    fi
 
-    echo "$registered_arn"
+    # 4. تسجيل الـ Task Definition الجديد
+    local registered_output
+    if ! registered_output="$(aws ecs register-task-definition \
+            --cli-input-json "file://$tmp_reg_json" \
+            --region "$AWS_REGION" 2>&1)"; then
+        echo "[ERROR] Failed to register task definition for family: ${family}" >&2
+        echo "$registered_output" >&2
+        rm -f "$tmp_desc_json" "$tmp_reg_json"
+        return 1
+    fi
+
+    # تنظيف الملفات المؤقتة
+    rm -f "$tmp_desc_json" "$tmp_reg_json"
+
+    # 5. طباعة الـ ARN فقط إلى stdout لإتاحة التقاطه من المتغير
+    echo "$registered_output" | jq -r '.taskDefinition.taskDefinitionArn'
 }
 
 deployment_log "Registering API task definition."
