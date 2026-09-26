@@ -111,33 +111,40 @@ register_task_definition() {
 
     # 2. تحويل الـ JSON وتجهيز الـ Payload الصالح للتسجيل
     jq \
-      --arg image "$image" \
-      '
-      .taskDefinition
-      | {
-          family,
-          taskRoleArn,
-          executionRoleArn,
-          networkMode,
-          containerDefinitions,
-          volumes,
-          placementConstraints,
-          requiresCompatibilities,
-          cpu,
-          memory,
-          pidMode,
-          ipcMode,
-          proxyConfiguration,
-          inferenceAccelerators,
-          ephemeralStorage,
-          runtimePlatform
-        }
-      | .containerDefinitions[0].image = $image
-      | with_entries(select(.value != null))
-      ' "$tmp_desc_json" > "$tmp_reg_json"
+        --arg image "$image" \
+        '
+        .taskDefinition
+        | {
+            family,
+            taskRoleArn,
+            executionRoleArn,
+            networkMode,
+            containerDefinitions,
+            volumes,
+            placementConstraints,
+            requiresCompatibilities,
+            cpu,
+            memory,
+            pidMode,
+            ipcMode,
+            inferenceAccelerators,
+            ephemeralStorage,
+            runtimePlatform
+            }
+        | .containerDefinitions[0].image = $image
+        | with_entries(
+            select(.value != null)
+            )
+        ' \
+        "$tmp_desc_json" > "$tmp_reg_json"
 
     # 3. التحقق من صحة بنية الـ JSON المولد
-    if ! jq empty "$tmp_reg_json" 2>/dev/null; then
+    if ! jq -e '
+        (.family | type == "string") and
+        (.containerDefinitions | type == "array") and
+        (.containerDefinitions | length > 0) and
+        (.containerDefinitions[0].image | type == "string")
+        ' "$tmp_reg_json" >/dev/null; then
         echo "[ERROR] Generated Task Definition JSON is invalid for family: ${family}" >&2
         echo "=== Generated JSON Content ===" >&2
         cat "$tmp_reg_json" >&2
@@ -146,11 +153,20 @@ register_task_definition() {
         return 1
     fi
 
-    # 4. تسجيل الـ Task Definition الجديد
+    # 4. Register the new task definition
     local registered_output
-    if ! registered_output="$(aws ecs register-task-definition \
-            --cli-input-json "file://$tmp_reg_json" \
-            --region "$AWS_REGION" 2>&1)"; then
+
+    echo "=== Task Definition JSON ===" >&2
+    cat "$tmp_reg_json" >&2
+    echo "============================" >&2
+
+    if ! registered_output="$(
+        aws ecs register-task-definition \
+            --cli-input-json "$(cat "$tmp_reg_json")" \
+            --region "$AWS_REGION" \
+            --output json \
+            2>&1
+    )"; then
         echo "[ERROR] Failed to register task definition for family: ${family}" >&2
         echo "$registered_output" >&2
         rm -f "$tmp_desc_json" "$tmp_reg_json"
