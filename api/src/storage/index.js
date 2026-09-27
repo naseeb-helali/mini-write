@@ -1,26 +1,19 @@
-const minioProvider =
-  require('./providers/minio');
-
-const s3Provider =
-  require('./providers/s3');
-
-const providers = {
-  minio: minioProvider,
-  s3: s3Provider
-};
-
 const providerName = (
   process.env.STORAGE_PROVIDER ||
   'minio'
 ).toLowerCase();
 
-const provider =
-  providers[providerName];
+const providers = {
+  minio: () => require('./providers/minio'),
+  s3: () => require('./providers/s3')
+};
 
-if (!provider) {
+const loadProvider = providers[providerName];
+
+if (!loadProvider) {
   throw new Error(
     `Unsupported storage provider: ${providerName}`
   );
 }
 
-module.exports = provider;
+module.exports = loadProvider();
