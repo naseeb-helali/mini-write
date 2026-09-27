@@ -9,6 +9,23 @@ locals {
   )
 }
 
+resource "aws_db_parameter_group" "this" {
+  name   = "${var.project_name}-${var.environment}-postgres"
+  family = "postgres${var.engine_version}"
+
+  parameter {
+    name  = "rds.force_ssl"
+    value = "0"
+  }
+
+  tags = merge(
+    local.common_tags,
+    {
+      Name = "${var.project_name}-${var.environment}-postgres-parameter-group"
+    }
+  )
+}
+
 resource "aws_db_subnet_group" "this" {
   name = "${var.project_name}-${var.environment}-db"
 
@@ -25,8 +42,9 @@ resource "aws_db_instance" "this" {
 
   engine         = "postgres"
   engine_version = var.engine_version
-
   instance_class = var.instance_class
+
+  parameter_group_name = aws_db_parameter_group.this.name
 
   allocated_storage     = var.allocated_storage
   max_allocated_storage = var.max_allocated_storage

@@ -9,7 +9,7 @@ module "alb" {
 
   alb_security_group_id = module.security_groups.alb_security_group_id
 
-  api_container_port = 80
+  api_container_port = 8080
 
   health_check_path = "/health/ready"
 }

@@ -21,7 +21,7 @@ variable "public_subnet_ids" {
 variable "api_container_port" {
   description = "Port exposed by the API container"
   type        = number
-  default     = 80
+  default     = 8080
 }
 
 variable "health_check_path" {

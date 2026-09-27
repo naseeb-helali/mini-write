@@ -83,7 +83,7 @@ async function startServer() {
     console.log("[DB] Database migration completed.");
 
     // 🔷 Start server
-    const PORT = process.env.HTTP_PORT || 80;
+    const PORT = process.env.HTTP_PORT || 8080;
 
     app.get('/metrics', async (req, res) => {
       res.set('Content-Type', register.contentType);

@@ -57,7 +57,7 @@ variable "worker_memory" {
 
 variable "api_container_port" {
   type    = number
-  default = 80
+  default = 8080
 }
 
 variable "node_env" {

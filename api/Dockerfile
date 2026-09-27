@@ -42,7 +42,7 @@ RUN chown -R node:node /app
 USER node
 
 # Document the port the container listens on
-EXPOSE 80
+EXPOSE 8080
 
 # Use EXEC form for CMD to ensure SIGTERM signals are handled correctly (PID 1)
 # This allows for Graceful Shutdown of the application
