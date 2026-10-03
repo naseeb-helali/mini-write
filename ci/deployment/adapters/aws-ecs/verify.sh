@@ -193,13 +193,13 @@ verify_service_identity \
     "$AWS_ECS_API_SERVICE" \
     "$EXPECTED_API_TASK_DEFINITION" \
     "$EXPECTED_API_DIGEST" \
-    "mini-write-api"
+    "api"
 
 verify_service_identity \
     "$AWS_ECS_WORKER_SERVICE" \
     "$EXPECTED_WORKER_TASK_DEFINITION" \
     "$EXPECTED_WORKER_DIGEST" \
-    "mini-write-worker"
+    "worker"
 
 deployment_log "ECS service verification passed."
 

@@ -478,7 +478,6 @@ data "aws_iam_policy_document" "cd_runner_policy" {
     actions = [
       "ecs:DescribeServices",
       "ecs:DescribeTasks",
-      "ecs:ListTasks",
       "ecs:UpdateService"
     ]
 
@@ -487,6 +486,31 @@ data "aws_iam_policy_document" "cd_runner_policy" {
       "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.project}*/*",
       "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.project}*"
     ]
+  }
+
+  statement {
+    sid    = "ECSTaskInspection"
+    effect = "Allow"
+
+    actions = [
+      "ecs:DescribeTasks"
+    ]
+
+    resources = [
+      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task/${var.project}*/*",
+      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task/${var.project}*"
+    ]
+  }
+
+  statement {
+    sid    = "ECSListTasks"
+    effect = "Allow"
+
+    actions = [
+      "ecs:ListTasks"
+    ]
+
+    resources = ["*"]
   }
 
   # ==========================================================
