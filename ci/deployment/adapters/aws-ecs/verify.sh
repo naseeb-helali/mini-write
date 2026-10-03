@@ -71,21 +71,21 @@ SERVICE_DATA="$(
 echo "$SERVICE_DATA" |
     jq -e '
       .services
-      | length == 2
+      | (length == 2)
       and all(
-          .;
+          .[];
           (.desiredCount == .runningCount)
           and (.runningCount > 0)
         )
     ' >/dev/null
 
 aws ecs describe-task-definition \
-  --task-definition mini-write-api \
+  --task-definition mini-write-staging-api \
   --region "$AWS_REGION" |
 jq -r '.taskDefinition.containerDefinitions[].name'
 
 aws ecs describe-task-definition \
-  --task-definition mini-write-worker \
+  --task-definition mini-write-staging-worker \
   --region "$AWS_REGION" |
 jq -r '.taskDefinition.containerDefinitions[].name'
 

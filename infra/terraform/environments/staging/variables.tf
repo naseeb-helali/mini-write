@@ -130,3 +130,11 @@ variable "redis_password" {
   type      = string
   sensitive = true
 }
+
+
+
+
+variable "api_container_port" {
+  type    = number
+  default = 8080
+}

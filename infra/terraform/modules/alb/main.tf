@@ -32,7 +32,7 @@ resource "aws_lb" "this" {
 # ==============================================================================
 
 resource "aws_lb_target_group" "api" {
-  name = "${local.name_prefix}-api"
+  name = "${local.name_prefix}-api-8080"
 
   port        = var.api_container_port
   protocol    = "HTTP"
@@ -45,8 +45,7 @@ resource "aws_lb_target_group" "api" {
 
     protocol = "HTTP"
     path     = var.health_check_path
-
-    port = "traffic-port"
+    port     = "traffic-port"
 
     healthy_threshold   = 2
     unhealthy_threshold = 3
@@ -55,6 +54,10 @@ resource "aws_lb_target_group" "api" {
     interval = 30
 
     matcher = "200"
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 
   deregistration_delay = 30
