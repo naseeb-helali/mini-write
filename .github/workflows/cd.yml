@@ -440,8 +440,8 @@ jobs:
 
       - name: Checkout source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
 
       - name: Validate deployment target
         shell: bash
