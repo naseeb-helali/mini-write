@@ -222,6 +222,9 @@ jobs:
 
         env:
           TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+          TF_VAR_db_password: ${{ secrets.POSTGRES_PASSWORD }}
+          TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+          TF_VAR_redis_password: ${{ secrets.REDIS_PASSWORD }}
 
         run: |
           set -euo pipefail
