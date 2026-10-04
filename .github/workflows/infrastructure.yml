@@ -258,7 +258,7 @@ jobs:
       - name: Upload Terraform Plan
         if: |
           (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
+          (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'))
         uses: actions/upload-artifact@v4
         with:
           name: mini-write-terraform-plan-${{ github.sha }}
@@ -346,7 +346,7 @@ jobs:
           aws sts get-caller-identity
 
       - name: Download Reviewed Terraform Plan
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
           name: mini-write-terraform-plan-${{ github.sha }}
           path: terraform-plan-artifact
@@ -400,6 +400,9 @@ jobs:
         working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
         env:
           TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+          TF_VAR_db_password: ${{ secrets.POSTGRES_PASSWORD }}
+          TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+          TF_VAR_redis_password: ${{ secrets.REDIS_PASSWORD }}
           
         run: |
           set -euo pipefail

@@ -170,54 +170,43 @@ resource "aws_iam_role_policy" "iac_apply_tfstate" {
   policy = data.aws_iam_policy_document.tfstate_access.json
 }
 
-
-
-
 # ==========================================
 # Managed Policy Attachments for iac_plan
 # ==========================================
-
 # 1. EC2 & VPC Read-Only Access
 resource "aws_iam_role_policy_attachment" "iac_plan_ec2_readonly" {
   role       = aws_iam_role.iac_plan.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess"
 }
-
 # 2. RDS Read-Only Access
 resource "aws_iam_role_policy_attachment" "iac_plan_rds_readonly" {
   role       = aws_iam_role.iac_plan.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonRDSReadOnlyAccess"
 }
-
 # 3. S3 Read-Only Access
 resource "aws_iam_role_policy_attachment" "iac_plan_s3_readonly" {
   role       = aws_iam_role.iac_plan.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
 }
-
 # 4. ECR Read-Only Access
 resource "aws_iam_role_policy_attachment" "iac_plan_ecr_readonly" {
   role       = aws_iam_role.iac_plan.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
-
 # 5. CloudWatch Read-Only Access
 resource "aws_iam_role_policy_attachment" "iac_plan_cloudwatch_readonly" {
   role       = aws_iam_role.iac_plan.name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess"
 }
-
 # 6. IAM Read-Only Access
 resource "aws_iam_role_policy_attachment" "iac_plan_iam_readonly" {
   role       = aws_iam_role.iac_plan.name
   policy_arn = "arn:aws:iam::aws:policy/IAMReadOnlyAccess"
 }
-
-# ==========================================
+# ------------------------------------------
 # Custom Policy for Missing Reads & Tagging
-# ==========================================
+# ------------------------------------------
 data "aws_caller_identity" "current" {}
-
 data "aws_iam_policy_document" "iac_plan_additional_reads" {
   # 1. ElastiCache Read & Tagging
   statement {
@@ -229,7 +218,6 @@ data "aws_iam_policy_document" "iac_plan_additional_reads" {
     ]
     resources = ["*"]
   }
-
   # 2. ECS Read & Tagging
   statement {
     sid    = "ECSReadOnly"
@@ -241,7 +229,6 @@ data "aws_iam_policy_document" "iac_plan_additional_reads" {
     ]
     resources = ["*"]
   }
-
   # 3. Secrets Manager Read
   statement {
     sid    = "SecretsManagerReadOnly"
@@ -256,7 +243,6 @@ data "aws_iam_policy_document" "iac_plan_additional_reads" {
       "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.project}-${var.environment}/*"
     ]
   }
-
   # 4. General Resource Tagging Read
   statement {
     sid    = "ResourceTaggingReadOnly"
@@ -269,7 +255,6 @@ data "aws_iam_policy_document" "iac_plan_additional_reads" {
     resources = ["*"]
   }
 }
-
 resource "aws_iam_role_policy" "iac_plan_additional_reads" {
   name   = "${var.project}-iac-plan-additional-reads-policy"
   role   = aws_iam_role.iac_plan.name
@@ -277,9 +262,115 @@ resource "aws_iam_role_policy" "iac_plan_additional_reads" {
 }
 
 # ==========================================
+# Managed Policy Attachments for iac_apply
+# ==========================================
+# 1. EC2, VPC & Load Balancers (ALB)
+resource "aws_iam_role_policy_attachment" "iac_apply_ec2_full" {
+  role       = aws_iam_role.iac_apply.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+}
+# 2. RDS Databases
+resource "aws_iam_role_policy_attachment" "iac_apply_rds_full" {
+  role       = aws_iam_role.iac_apply.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonRDSFullAccess"
+}
+# 3. S3 Storage
+resource "aws_iam_role_policy_attachment" "iac_apply_s3_full" {
+  role       = aws_iam_role.iac_apply.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+}
+# 4. ECR Repositories
+resource "aws_iam_role_policy_attachment" "iac_apply_ecr_full" {
+  role       = aws_iam_role.iac_apply.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess"
+}
+# 5. CloudWatch Logs & Alarms
+resource "aws_iam_role_policy_attachment" "iac_apply_cloudwatch_full" {
+  role       = aws_iam_role.iac_apply.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchFullAccess"
+}
+# 6. ElastiCache (Redis)
+resource "aws_iam_role_policy_attachment" "iac_apply_elasticache_full" {
+  role       = aws_iam_role.iac_apply.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonElastiCacheFullAccess"
+}
+# 7. ECS Clusters & Services
+resource "aws_iam_role_policy_attachment" "iac_apply_ecs_full" {
+  role       = aws_iam_role.iac_apply.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonECS_FullAccess"
+}
+# 8. IAM Roles & Policies Management
+resource "aws_iam_role_policy_attachment" "iac_apply_iam_full" {
+  role       = aws_iam_role.iac_apply.name
+  policy_arn = "arn:aws:iam::aws:policy/IAMFullAccess"
+}
+# ------------------------------------------
+# Custom Policy for Secrets Manager, KMS & Tagging
+# ------------------------------------------
+data "aws_iam_policy_document" "iac_apply_additional_permissions" {
+  # Secrets Manager Full Access (تغطية مرنة لكافة أسرار المشروع)
+  statement {
+    sid    = "SecretsManagerFullAccess"
+    effect = "Allow"
+    actions = [
+      "secretsmanager:CreateSecret",
+      "secretsmanager:DescribeSecret",
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:PutSecretValue",
+      "secretsmanager:UpdateSecret",
+      "secretsmanager:DeleteSecret",
+      "secretsmanager:RestoreSecret",
+      "secretsmanager:TagResource",
+      "secretsmanager:UntagResource",
+      "secretsmanager:GetResourcePolicy",
+      "secretsmanager:ListSecretVersionIds"
+    ]
+    resources = [
+      "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.project}*"
+    ]
+  }
+  # Global Resource Tagging API
+  statement {
+    sid    = "ResourceTaggingFullAccess"
+    effect = "Allow"
+    actions = [
+      "tag:GetResources",
+      "tag:GetTagKeys",
+      "tag:GetTagValues",
+      "tag:TagResources",
+      "tag:UntagResources"
+    ]
+    resources = ["*"]
+  }
+  # KMS Keys Management (في حال استخدام تشفير مخصص للـ S3/RDS/Secrets)
+  statement {
+    sid    = "KMSManagement"
+    effect = "Allow"
+    actions = [
+      "kms:CreateKey",
+      "kms:CreateAlias",
+      "kms:DescribeKey",
+      "kms:GetKeyPolicy",
+      "kms:GetKeyRotationStatus",
+      "kms:ListResourceTags",
+      "kms:ScheduleKeyDeletion",
+      "kms:TagResource",
+      "kms:UntagResource",
+      "kms:UpdateAlias",
+      "kms:UpdateKeyDescription"
+    ]
+    resources = ["*"]
+  }
+}
+resource "aws_iam_role_policy" "iac_apply_additional_permissions" {
+  name   = "${var.project}-iac-apply-additional-permissions-policy"
+  role   = aws_iam_role.iac_apply.name
+  policy = data.aws_iam_policy_document.iac_apply_additional_permissions.json
+}
+
+# ==========================================
 # CI Runner Role
 # ==========================================
-
 data "aws_iam_policy_document" "ci_runner_assume_role" {
   count = length(var.ci_subjects) > 0 ? 1 : 0
 
@@ -313,7 +404,6 @@ data "aws_iam_policy_document" "ci_runner_assume_role" {
     }
   }
 }
-
 resource "aws_iam_role" "ci_runner" {
   count = length(var.ci_subjects) > 0 ? 1 : 0
 
@@ -328,13 +418,11 @@ resource "aws_iam_role" "ci_runner" {
     }
   )
 }
-
 data "aws_iam_policy_document" "ci_ecr_policy" {
   count = length(var.ci_subjects) > 0 ? 1 : 0
-
-  # ==========================================================
+  # ------------------------------------------
   # ECR Authentication
-  # ==========================================================
+  # ------------------------------------------
   statement {
     sid    = "ECRAuthentication"
     effect = "Allow"
@@ -345,10 +433,9 @@ data "aws_iam_policy_document" "ci_ecr_policy" {
 
     resources = ["*"]
   }
-
-  # ==========================================================
+  # ------------------------------------------
   # ECR Push
-  # ==========================================================
+  # ------------------------------------------
   statement {
     sid    = "ECRPush"
     effect = "Allow"
@@ -368,7 +455,6 @@ data "aws_iam_policy_document" "ci_ecr_policy" {
     ]
   }
 }
-
 resource "aws_iam_role_policy" "ci_ecr" {
   count = length(var.ci_subjects) > 0 ? 1 : 0
 
@@ -380,7 +466,6 @@ resource "aws_iam_role_policy" "ci_ecr" {
 # ==========================================
 # CD Runner Role
 # ==========================================
-
 data "aws_iam_policy_document" "cd_runner_assume_role" {
   count = length(var.cd_subjects) > 0 ? 1 : 0
 
@@ -414,7 +499,6 @@ data "aws_iam_policy_document" "cd_runner_assume_role" {
     }
   }
 }
-
 resource "aws_iam_role" "cd_runner" {
   count = length(var.cd_subjects) > 0 ? 1 : 0
 
@@ -429,13 +513,11 @@ resource "aws_iam_role" "cd_runner" {
     }
   )
 }
-
 data "aws_iam_policy_document" "cd_runner_policy" {
   count = length(var.cd_subjects) > 0 ? 1 : 0
-
-  # ==========================================================
+  # ------------------------------------------
   # ECR Access
-  # ==========================================================
+  # ------------------------------------------
   statement {
     sid    = "ECRAuth"
     effect = "Allow"
@@ -451,11 +533,9 @@ data "aws_iam_policy_document" "cd_runner_policy" {
 
     resources = ["*"]
   }
-
-
-  # ==========================================================
+  # --------------------------------------------------------
   # ECS Task Definition Access (Requires Wildcard Resource)
-  # ==========================================================
+  # --------------------------------------------------------
   statement {
     sid    = "ECSTaskDefinitionGlobalAccess"
     effect = "Allow"
@@ -467,10 +547,9 @@ data "aws_iam_policy_document" "cd_runner_policy" {
 
     resources = ["*"]
   }
-
-  # ==========================================================
+  # ------------------------------------------
   # ECS Cluster and Service Access
-  # ==========================================================
+  # ------------------------------------------
   statement {
     sid    = "ECSServiceAndClusterAccess"
     effect = "Allow"
@@ -487,7 +566,6 @@ data "aws_iam_policy_document" "cd_runner_policy" {
       "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.project}*"
     ]
   }
-
   statement {
     sid    = "ECSTaskInspection"
     effect = "Allow"
@@ -501,7 +579,6 @@ data "aws_iam_policy_document" "cd_runner_policy" {
       "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task/${var.project}*"
     ]
   }
-
   statement {
     sid    = "ECSListTasks"
     effect = "Allow"
@@ -512,10 +589,9 @@ data "aws_iam_policy_document" "cd_runner_policy" {
 
     resources = ["*"]
   }
-
-  # ==========================================================
+  # ----------------------------------------------
   # Pass only the ECS task roles used by staging
-  # ==========================================================
+  # ----------------------------------------------
   statement {
     sid    = "PassECSTaskRoles"
     effect = "Allow"
@@ -539,10 +615,9 @@ data "aws_iam_policy_document" "cd_runner_policy" {
       ]
     }
   }
-
-  # ==========================================================
+  # ------------------------------------------
   # CloudWatch Logs
-  # ==========================================================
+  # ------------------------------------------
   statement {
     sid    = "CloudWatchLogs"
     effect = "Allow"
@@ -559,7 +634,6 @@ data "aws_iam_policy_document" "cd_runner_policy" {
     ]
   }
 }
-
 resource "aws_iam_role_policy" "cd_runner_policy" {
   count = length(var.cd_subjects) > 0 ? 1 : 0
 
