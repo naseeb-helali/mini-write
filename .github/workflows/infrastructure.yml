@@ -54,7 +54,7 @@ permissions:
   id-token: write
 
 env:
-  TERRAFORM_VERSION: "1.9.8"
+  TERRAFORM_VERSION: "2.0.0"
   TERRAFORM_ROOT: "infra/terraform"
   TERRAFORM_ENVIRONMENT: "staging"
 
