@@ -10,13 +10,13 @@ variable "project_name" {
 variable "aws_region" {
   description = "Name of the S3 bucket storing Terraform state."
   type        = string
-  default = "us-east-1"
+  default     = "us-east-1"
 }
 
 variable "environment" {
   description = "Name of the S3 bucket storing Terraform state."
   type        = string
-  default = "staging"
+  default     = "staging"
 }
 
 variable "plan_subjects" {

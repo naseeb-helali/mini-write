@@ -292,7 +292,7 @@ data "aws_iam_policy_document" "ci_runner_assume_role" {
     ]
 
     principals {
-      type        = "Federated"
+      type = "Federated"
       identifiers = [
         aws_iam_openid_connect_provider.github.arn
       ]
@@ -301,7 +301,7 @@ data "aws_iam_policy_document" "ci_runner_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
-      values   = [
+      values = [
         "sts.amazonaws.com"
       ]
     }
@@ -393,7 +393,7 @@ data "aws_iam_policy_document" "cd_runner_assume_role" {
     ]
 
     principals {
-      type        = "Federated"
+      type = "Federated"
       identifiers = [
         aws_iam_openid_connect_provider.github.arn
       ]
@@ -402,7 +402,7 @@ data "aws_iam_policy_document" "cd_runner_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
-      values   = [
+      values = [
         "sts.amazonaws.com"
       ]
     }

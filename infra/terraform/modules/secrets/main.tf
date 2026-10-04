@@ -29,7 +29,7 @@ resource "aws_secretsmanager_secret" "database" {
 
 resource "aws_secretsmanager_secret_version" "database" {
   secret_id = aws_secretsmanager_secret.database.id
-  
+
   # يفضل تمرير البيانات كـ JSON object لبيانات قاعدة البيانات
   secret_string = jsonencode({
     password = var.db_password
