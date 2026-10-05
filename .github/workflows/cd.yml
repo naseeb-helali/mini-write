@@ -543,6 +543,18 @@ jobs:
 
           cat deployment-request/request.json
 
+      - name: Start deployment timer
+        id: deployment-timer-start
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          started_epoch="$(date +%s)"
+          started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          echo "started_epoch=${started_epoch}" >> "$GITHUB_OUTPUT"
+          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+
       - name: Deploy through deployment adapter
         shell: bash
         env:
@@ -593,6 +605,33 @@ jobs:
           ./ci/deployment/verify.sh \
             --request deployment-request/request.json
 
+      - name: Capture deployment timing
+        id: deployment-timing
+        shell: bash
+        env:
+          DEPLOYMENT_STARTED_EPOCH: ${{ steps.deployment-timer-start.outputs.started_epoch }}
+          DEPLOYMENT_STARTED_AT: ${{ steps.deployment-timer-start.outputs.started_at }}
+        run: |
+          set -euo pipefail
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          duration_seconds="$((completed_epoch - DEPLOYMENT_STARTED_EPOCH))"
+
+          echo "deployment_started_at=${DEPLOYMENT_STARTED_AT}" >> "$GITHUB_OUTPUT"
+          echo "deployment_completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
+          echo "deployment_duration_seconds=${duration_seconds}" >> "$GITHUB_OUTPUT"
+
+          cat > deployment-output/deployment-timing.json <<EOF
+          {
+            "deploymentStartedAt": "${DEPLOYMENT_STARTED_AT}",
+            "deploymentCompletedAt": "${completed_at}",
+            "deploymentDurationSeconds": ${duration_seconds}
+          }
+          EOF
+
+          jq empty deployment-output/deployment-timing.json
+
       - name: Create staging promotion evidence
         shell: bash
         env:
@@ -601,6 +640,10 @@ jobs:
           VERSION: ${{ needs.validate-artifact.outputs.version }}
           API_DIGEST: ${{ needs.validate-artifact.outputs.api_digest }}
           WORKER_DIGEST: ${{ needs.validate-artifact.outputs.worker_digest }}
+
+          DEPLOYMENT_STARTED_AT: ${{ steps.deployment-timing.outputs.deployment_started_at }}
+          DEPLOYMENT_COMPLETED_AT: ${{ steps.deployment-timing.outputs.deployment_completed_at }}
+          DEPLOYMENT_DURATION_SECONDS: ${{ steps.deployment-timing.outputs.deployment_duration_seconds }}          
         run: |
           set -euo pipefail
 
@@ -650,6 +693,11 @@ jobs:
                 "taskDefinitionArn": "$WORKER_TASK_DEFINITION"
               }
             },
+            "deploymentTiming": {
+              "startedAt": "${DEPLOYMENT_STARTED_AT}",
+              "completedAt": "${DEPLOYMENT_COMPLETED_AT}",
+              "durationSeconds": ${DEPLOYMENT_DURATION_SECONDS}
+            },            
             "evidence": {
               "stagingDeployed": true,
               "stagingVerified": true,
@@ -666,7 +714,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mini-write-promotion-eligibility-${{ needs.resolve-artifact.outputs.source_sha }}
-          path: staging-evidence/evidence/promotion-eligibility.json
+          path: |
+            staging-evidence/evidence/promotion-eligibility.json
+            deployment-output/deployment.json
           if-no-files-found: error
           retention-days: 30
 
