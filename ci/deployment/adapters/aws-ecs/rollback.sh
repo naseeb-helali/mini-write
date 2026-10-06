@@ -73,4 +73,33 @@ aws ecs wait services-stable \
         "$AWS_ECS_WORKER_SERVICE" \
     --region "$AWS_REGION"
 
+API_DIGEST="$(request_api_digest)"
+WORKER_DIGEST="$(request_worker_digest)"
+
+OUTPUT_DIR="${DEPLOYMENT_OUTPUT_DIR:-deployment-output}"
+
+mkdir -p "$OUTPUT_DIR"
+
+cat > "$OUTPUT_DIR/deployment.json" <<EOF
+{
+  "schemaVersion": "1.0",
+  "deploymentTarget": "aws-ecs",
+  "cluster": "$AWS_ECS_CLUSTER",
+  "api": {
+    "service": "$AWS_ECS_API_SERVICE",
+    "taskDefinitionArn": "$AWS_ECS_API_ROLLBACK_TASK_DEFINITION"
+  },
+  "worker": {
+    "service": "$AWS_ECS_WORKER_SERVICE",
+    "taskDefinitionArn": "$AWS_ECS_WORKER_ROLLBACK_TASK_DEFINITION"
+  },
+  "artifact": {
+    "apiDigest": "$API_DIGEST",
+    "workerDigest": "$WORKER_DIGEST"
+  }
+}
+EOF
+
+deployment_log "Rollback identity written to $OUTPUT_DIR/deployment.json"
+
 deployment_log "AWS ECS rollback completed successfully."

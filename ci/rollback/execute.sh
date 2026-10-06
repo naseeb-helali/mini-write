@@ -34,6 +34,20 @@ version="$(
     jq -er '.release.version' "$ROLLBACK_EVIDENCE"
 )"
 
+api_task_definition="$(
+    jq -er '.deployment.api.taskDefinitionArn' "$ROLLBACK_EVIDENCE"
+)"
+
+worker_task_definition="$(
+    jq -er '.deployment.worker.taskDefinitionArn' "$ROLLBACK_EVIDENCE"
+)"
+
+[[ -n "$api_task_definition" ]] || \
+    die "API task definition ARN missing from rollback evidence"
+
+[[ -n "$worker_task_definition" ]] || \
+    die "Worker task definition ARN missing from rollback evidence"
+
 mkdir -p rollback-request
 
 cat > rollback-request/request.json <<EOF
@@ -41,6 +55,11 @@ cat > rollback-request/request.json <<EOF
   "schemaVersion": "1.0",
   "project": "mini-write",
   "environment": "production",
+  "release": {
+    "id": "$TARGET_SOURCE_SHA",
+    "source": "$TARGET_SOURCE_SHA",
+    "version": "$version"
+  },
   "rollback": {
     "failedRelease": {
       "id": "$FAILED_SOURCE_SHA",
@@ -73,6 +92,9 @@ echo "Rollback request:"
 cat rollback-request/request.json
 
 echo "Executing rollback adapter."
+
+export AWS_ECS_API_ROLLBACK_TASK_DEFINITION="$api_task_definition"
+export AWS_ECS_WORKER_ROLLBACK_TASK_DEFINITION="$worker_task_definition"
 
 case "$DEPLOYMENT_TARGET" in
 

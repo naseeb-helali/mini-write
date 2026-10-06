@@ -39,6 +39,18 @@ deployment_require_nonempty "AWS_REGION" "$AWS_REGION"
 deployment_require_nonempty "AWS_ECS_CLUSTER" "${AWS_ECS_CLUSTER:-}"
 deployment_require_nonempty "AWS_ECS_API_SERVICE" "${AWS_ECS_API_SERVICE:-}"
 deployment_require_nonempty "AWS_ECS_WORKER_SERVICE" "${AWS_ECS_WORKER_SERVICE:-}"
+deployment_require_nonempty "API_HEALTH_URL" "${API_HEALTH_URL:-}"
+
+AWS_ECS_API_CONTAINER_NAME="${AWS_ECS_API_CONTAINER_NAME:-api}"
+AWS_ECS_WORKER_CONTAINER_NAME="${AWS_ECS_WORKER_CONTAINER_NAME:-worker}"
+
+deployment_require_nonempty \
+    "AWS_ECS_API_CONTAINER_NAME" \
+    "$AWS_ECS_API_CONTAINER_NAME"
+
+deployment_require_nonempty \
+    "AWS_ECS_WORKER_CONTAINER_NAME" \
+    "$AWS_ECS_WORKER_CONTAINER_NAME"
 
 DEPLOYMENT_OUTPUT_DIR="${DEPLOYMENT_OUTPUT_DIR:-deployment-output}"
 DEPLOYMENT_IDENTITY_FILE="$DEPLOYMENT_OUTPUT_DIR/deployment.json"
@@ -78,16 +90,6 @@ echo "$SERVICE_DATA" |
           and (.runningCount > 0)
         )
     ' >/dev/null
-
-aws ecs describe-task-definition \
-  --task-definition mini-write-staging-api \
-  --region "$AWS_REGION" |
-jq -r '.taskDefinition.containerDefinitions[].name'
-
-aws ecs describe-task-definition \
-  --task-definition mini-write-staging-worker \
-  --region "$AWS_REGION" |
-jq -r '.taskDefinition.containerDefinitions[].name'
 
 verify_service_identity() {
     local service="$1"
@@ -193,17 +195,15 @@ verify_service_identity \
     "$AWS_ECS_API_SERVICE" \
     "$EXPECTED_API_TASK_DEFINITION" \
     "$EXPECTED_API_DIGEST" \
-    "api"
+    "$AWS_ECS_API_CONTAINER_NAME"
 
 verify_service_identity \
     "$AWS_ECS_WORKER_SERVICE" \
     "$EXPECTED_WORKER_TASK_DEFINITION" \
     "$EXPECTED_WORKER_DIGEST" \
-    "worker"
+    "$AWS_ECS_WORKER_CONTAINER_NAME"
 
 deployment_log "ECS service verification passed."
-
-API_HEALTH_URL="${API_HEALTH_URL:-}"
 
 deployment_log "Checking application readiness endpoint."
 
@@ -218,6 +218,5 @@ curl \
     >/dev/null
 
 deployment_log "Application readiness verification passed."
-
 
 deployment_log "AWS ECS environment verification completed successfully."

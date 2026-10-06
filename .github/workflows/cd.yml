@@ -789,7 +789,7 @@ jobs:
               .filter(run =>
                 run.head_sha === sourceSha &&
                 run.conclusion === "success" &&
-                run.event === "workflow_run"
+                (run.event === "workflow_run" || run.event === "workflow_dispatch")
               )
               .sort((a, b) =>
                 new Date(b.created_at) - new Date(a.created_at)
@@ -997,19 +997,25 @@ jobs:
     env:
       DEPLOYMENT_TARGET: ${{ vars.DEPLOYMENT_TARGET }}
       REGISTRY_TYPE: ${{ vars.REGISTRY_TYPE }}
+
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
-      ECS_SERVICE_API: ${{ vars.ECS_SERVICE_API }}
-      ECS_SERVICE_WORKER: ${{ vars.ECS_SERVICE_WORKER }}
-      IMAGE_NAME: mini-write
+
+      AWS_ECS_CLUSTER: ${{ vars.AWS_ECS_CLUSTER }}
+      AWS_ECS_API_SERVICE: ${{ vars.AWS_ECS_API_SERVICE }}
+      AWS_ECS_WORKER_SERVICE: ${{ vars.AWS_ECS_WORKER_SERVICE }}
+
+      AWS_ECS_API_TASK_DEFINITION_FAMILY: ${{ vars.AWS_ECS_API_TASK_DEFINITION_FAMILY }}
+      AWS_ECS_WORKER_TASK_DEFINITION_FAMILY: ${{ vars.AWS_ECS_WORKER_TASK_DEFINITION_FAMILY }}
+
+      API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
 
     steps:
 
       - name: Checkout release source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
 
       - name: Validate deployment target
         shell: bash
@@ -1027,6 +1033,31 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Validate production ECS configuration
+        if: env.DEPLOYMENT_TARGET == 'aws-ecs'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_vars=(
+            AWS_REGION
+            AWS_ECS_CLUSTER
+            AWS_ECS_API_SERVICE
+            AWS_ECS_WORKER_SERVICE
+            AWS_ECS_API_TASK_DEFINITION_FAMILY
+            AWS_ECS_WORKER_TASK_DEFINITION_FAMILY
+            API_HEALTH_URL
+          )
+
+          for name in "${required_vars[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name is required for production ECS deployment"
+              exit 1
+            fi
+          done
+
+          echo "Production ECS configuration validated."
 
       - name: Build promotion request
         shell: bash
@@ -1083,8 +1114,21 @@ jobs:
         if: vars.REGISTRY_TYPE == 'ecr' || vars.DEPLOYMENT_TARGET == 'aws-ecs'
         uses: aws-actions/configure-aws-credentials@v4
         with:
+          aws-region: ${{ env.AWS_REGION }}
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/mini-write-github-cd-runner
-          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: mini-write-production-deployment
+
+      - name: Log in to Amazon ECR
+        if: vars.REGISTRY_TYPE == 'ecr'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Log in to GHCR
+        if: vars.REGISTRY_TYPE == 'ghcr'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Build approved deployment request
         shell: bash
@@ -1153,12 +1197,18 @@ jobs:
       - name: Deploy approved artifact
         shell: bash
         env:
+          ARTIFACT_REGISTRY: ${{ vars.REGISTRY_TYPE == 'ecr' && format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) || 'ghcr.io' }}
           REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+
           AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
-          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
-          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+
+          AWS_ECS_CLUSTER: ${{ env.AWS_ECS_CLUSTER }}
+          AWS_ECS_API_SERVICE: ${{ env.AWS_ECS_API_SERVICE }}
+          AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
+
+          AWS_ECS_API_TASK_DEFINITION_FAMILY: ${{ env.AWS_ECS_API_TASK_DEFINITION_FAMILY }}
+          AWS_ECS_WORKER_TASK_DEFINITION_FAMILY: ${{ env.AWS_ECS_WORKER_TASK_DEFINITION_FAMILY }}
         run: |
           set -euo pipefail
 
@@ -1170,12 +1220,19 @@ jobs:
       - name: Verify production
         shell: bash
         env:
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
+
+          ARTIFACT_REGISTRY: ${{ vars.REGISTRY_TYPE == 'ecr' && format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) || 'ghcr.io' }}
           REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+
           AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
-          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
-          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+
+          AWS_ECS_CLUSTER: ${{ env.AWS_ECS_CLUSTER }}
+          AWS_ECS_API_SERVICE: ${{ env.AWS_ECS_API_SERVICE }}
+          AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
+
+          API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
         run: |
           set -euo pipefail
 
@@ -1192,10 +1249,24 @@ jobs:
           VERSION: ${{ needs.validate-artifact.outputs.version }}
           API_DIGEST: ${{ needs.validate-artifact.outputs.api_digest }}
           WORKER_DIGEST: ${{ needs.validate-artifact.outputs.worker_digest }}
+
+          AWS_ECS_CLUSTER: ${{ env.AWS_ECS_CLUSTER }}
+          AWS_ECS_API_SERVICE: ${{ env.AWS_ECS_API_SERVICE }}
+          AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
         run: |
           set -euo pipefail
 
           mkdir -p evidence
+
+          API_TASK_DEFINITION="$(
+            jq -er '.api.taskDefinitionArn' \
+              deployment-output/deployment.json
+          )"
+
+          WORKER_TASK_DEFINITION="$(
+            jq -er '.worker.taskDefinitionArn' \
+              deployment-output/deployment.json
+          )"
 
           python3 - <<'PY'
           import json
@@ -1223,6 +1294,18 @@ jobs:
                   "worker": {
                       "tag": source_sha,
                       "digest": os.environ["WORKER_DIGEST"]
+                  }
+              },
+              "deployment": {
+                  "target": "aws-ecs",
+                  "cluster": os.environ["AWS_ECS_CLUSTER"],
+                  "api": {
+                      "service": os.environ["AWS_ECS_API_SERVICE"],
+                      "taskDefinitionArn": os.environ["API_TASK_DEFINITION"]
+                  },
+                  "worker": {
+                      "service": os.environ["AWS_ECS_WORKER_SERVICE"],
+                      "taskDefinitionArn": os.environ["WORKER_TASK_DEFINITION"]
                   }
               },
               "timestamp": datetime.now(timezone.utc).isoformat()
@@ -1299,23 +1382,30 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
 
     env:
       DEPLOYMENT_TARGET: ${{ vars.DEPLOYMENT_TARGET }}
       REGISTRY_TYPE: ${{ vars.REGISTRY_TYPE }}
+
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
-      ECS_SERVICE_API: ${{ vars.ECS_SERVICE_API }}
-      ECS_SERVICE_WORKER: ${{ vars.ECS_SERVICE_WORKER }}
-      IMAGE_NAME: mini-write
+
+      AWS_ECS_CLUSTER: ${{ vars.AWS_ECS_CLUSTER }}
+      AWS_ECS_API_SERVICE: ${{ vars.AWS_ECS_API_SERVICE }}
+      AWS_ECS_WORKER_SERVICE: ${{ vars.AWS_ECS_WORKER_SERVICE }}
+
+      AWS_ECS_API_TASK_DEFINITION_FAMILY: ${{ vars.AWS_ECS_API_TASK_DEFINITION_FAMILY }}
+      AWS_ECS_WORKER_TASK_DEFINITION_FAMILY: ${{ vars.AWS_ECS_WORKER_TASK_DEFINITION_FAMILY }}
+
+      API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
 
     steps:
 
       - name: Checkout failed release
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
 
       - name: Validate rollback environment
         shell: bash
@@ -1338,8 +1428,21 @@ jobs:
         if: vars.REGISTRY_TYPE == 'ecr' || vars.DEPLOYMENT_TARGET == 'aws-ecs'
         uses: aws-actions/configure-aws-credentials@v4
         with:
+          aws-region: ${{ env.AWS_REGION }}
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/mini-write-github-cd-runner
-          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: mini-write-production-rollback
+
+      - name: Log in to Amazon ECR
+        if: vars.REGISTRY_TYPE == 'ecr'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Log in to GHCR
+        if: vars.REGISTRY_TYPE == 'ghcr'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Resolve previous known-good production release
         id: resolve-previous
@@ -1354,7 +1457,7 @@ jobs:
           ./ci/rollback/resolve.sh
 
       - name: Download previous production verification evidence
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
           name: ${{ steps.resolve-previous.outputs.artifact_name }}
           path: rollback-evidence
@@ -1374,16 +1477,23 @@ jobs:
 
       - name: Execute rollback
         env:
+          API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
           FAILED_SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
           TARGET_SOURCE_SHA: ${{ steps.resolve-previous.outputs.source_sha }}
           ROLLBACK_EVIDENCE: rollback-evidence/production-verification.json
+
+          ARTIFACT_REGISTRY: ${{ vars.REGISTRY_TYPE == 'ecr' && format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) || 'ghcr.io' }}
           DEPLOYMENT_TARGET: ${{ env.DEPLOYMENT_TARGET }}
           REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+
           AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
-          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
-          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+
+          AWS_ECS_CLUSTER: ${{ env.AWS_ECS_CLUSTER }}
+          AWS_ECS_API_SERVICE: ${{ env.AWS_ECS_API_SERVICE }}
+          AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
+
         run: |
           set -euo pipefail
 
@@ -1392,16 +1502,24 @@ jobs:
       - name: Verify rollback
         env:
           ROLLBACK_REQUEST: rollback-request/request.json
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
+
+          ARTIFACT_REGISTRY: ${{ vars.REGISTRY_TYPE == 'ecr' && format('{0}.dkr.ecr.{1}.amazonaws.com', vars.AWS_ACCOUNT_ID, vars.AWS_REGION) || 'ghcr.io' }}
           REGISTRY_TYPE: ${{ env.REGISTRY_TYPE }}
+
           AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
-          ECS_SERVICE_API: ${{ env.ECS_SERVICE_API }}
-          ECS_SERVICE_WORKER: ${{ env.ECS_SERVICE_WORKER }}
+
+          AWS_ECS_CLUSTER: ${{ env.AWS_ECS_CLUSTER }}
+          AWS_ECS_API_SERVICE: ${{ env.AWS_ECS_API_SERVICE }}
+          AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
+
+          API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
         run: |
           set -euo pipefail
 
           test -f "$ROLLBACK_REQUEST"
+          test -f "$DEPLOYMENT_OUTPUT_DIR/deployment.json"
 
           ./ci/deployment/verify.sh \
             --request "$ROLLBACK_REQUEST"
