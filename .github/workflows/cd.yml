@@ -1285,6 +1285,8 @@ jobs:
           AWS_ECS_CLUSTER: ${{ env.AWS_ECS_CLUSTER }}
           AWS_ECS_API_SERVICE: ${{ env.AWS_ECS_API_SERVICE }}
           AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
+
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
         run: |
           set -euo pipefail
 
@@ -1292,13 +1294,16 @@ jobs:
 
           API_TASK_DEFINITION="$(
             jq -er '.api.taskDefinitionArn' \
-              deployment-output/deployment.json
+              "$DEPLOYMENT_OUTPUT_DIR/deployment.json"
           )"
 
           WORKER_TASK_DEFINITION="$(
             jq -er '.worker.taskDefinitionArn' \
-              deployment-output/deployment.json
+              "$DEPLOYMENT_OUTPUT_DIR/deployment.json"
           )"
+
+          export API_TASK_DEFINITION
+          export WORKER_TASK_DEFINITION
 
           python3 - <<'PY'
           import json
