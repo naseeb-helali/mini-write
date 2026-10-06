@@ -775,40 +775,71 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const sourceSha = process.env.SOURCE_SHA;
+            const artifactName =
+              `mini-write-promotion-eligibility-${sourceSha}`;
 
+            core.info(`Looking for artifact: ${artifactName}`);
+
+            // 1. اجلب كل CD runs الناجحة (بغض النظر عن head_sha)
             const response =
               await github.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
                 workflow_id: process.env.CD_WORKFLOW,
-                head_sha: sourceSha,
                 status: "success",
-                per_page: 50
+                per_page: 100
               });
 
-            const runs = response.data.workflow_runs
+            const candidateRuns = response.data.workflow_runs
               .filter(run =>
-                run.head_sha === sourceSha &&
                 run.conclusion === "success" &&
-                (run.event === "workflow_run" || run.event === "workflow_dispatch")
+                (
+                  run.event === "workflow_run" ||
+                  run.event === "workflow_dispatch"
+                )
               )
               .sort((a, b) =>
                 new Date(b.created_at) - new Date(a.created_at)
               );
 
-            if (runs.length === 0) {
+            core.info(
+              `Candidate CD runs: ${candidateRuns.length}`
+            );
+
+            let matchedRun = null;
+
+            for (const run of candidateRuns) {
+              const artifacts =
+                await github.rest.actions.listWorkflowRunArtifacts({
+                  owner,
+                  repo,
+                  run_id: run.id
+                });
+
+              const found = artifacts.data.artifacts.find(
+                a => a.name === artifactName && !a.expired
+              );
+
+              if (found) {
+                core.info(
+                  `Found artifact ${artifactName} in CD run ${run.id}`
+                );
+                matchedRun = run;
+                break;
+              }
+            }
+
+            if (!matchedRun) {
               core.setFailed(
-                `No successful staging CD run found for ${sourceSha}`
+                `No successful CD run found that produced artifact ${artifactName}`
               );
               return;
             }
 
-            const run = runs[0];
-
-            core.info(`Staging CD run: ${run.id}`);
+            core.info(`Staging CD run: ${matchedRun.id}`);
             core.info(`Source SHA: ${sourceSha}`);
 
-            core.setOutput("run_id", String(run.id));
+            core.setOutput("run_id", String(matchedRun.id));
 
       - name: Download staging promotion evidence
         uses: actions/download-artifact@v5
