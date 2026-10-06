@@ -1264,7 +1264,7 @@ jobs:
           AWS_ECS_API_SERVICE: ${{ env.AWS_ECS_API_SERVICE }}
           AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
 
-          API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
+          API_HEALTH_URL: "http://mini-write-staging-alb-24853276.us-east-1.elb.amazonaws.com/health/ready-invalid"
         run: |
           set -euo pipefail
 
