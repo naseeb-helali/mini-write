@@ -739,6 +739,7 @@ jobs:
     needs:
       - resolve-artifact
       - validate-artifact
+      - deploy-staging
 
     if: >
       (
