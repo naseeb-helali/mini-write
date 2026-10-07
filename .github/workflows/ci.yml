@@ -28,6 +28,15 @@ jobs:
       JOB_KEY: "validate"
 
     steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check timing files after checkout
+        run: |
+          echo "=== After checkout ==="
+          ls -la .ci-timing || echo ".ci-timing does NOT exist"
+
       - name: Start CI timing
         shell: bash
         run: |
@@ -35,9 +44,6 @@ jobs:
           mkdir -p .ci-timing
           date +%s > .ci-timing/started-epoch
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Validate runner
         run: |
