@@ -754,6 +754,14 @@ jobs:
           cache-dir: .trivycache/
           version: v0.74.0
 
+          # Trivy was already installed by the API scan.
+          skip-setup-trivy: true
+
+          # The API scan already restored the Trivy DB cache.
+          # Reuse the same local .trivycache directory instead
+          # of restoring the GitHub Actions cache again.
+          cache: false
+
       - name: Push Worker image (main only)
         id: worker_push
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
