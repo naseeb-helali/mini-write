@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mini-write.local/schemas/ci-timing.schema.json",
+  "title": "Mini-Write CI Timing Evidence",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "project",
+    "pipeline",
+    "status",
+    "run",
+    "endToEnd",
+    "jobs",
+    "evidence",
+    "timestamp"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "project": { "const": "mini-write" },
+    "pipeline": { "const": "ci" },
+    "status": { "enum": ["passed", "failed"] },
+    "run": {
+      "type": "object",
+      "required": ["id", "attempt", "commit", "event", "ref"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "event": { "type": "string" },
+        "ref": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "endToEnd": {
+      "type": "object",
+      "required": [
+        "definition",
+        "startedAt",
+        "completedAt",
+        "durationSeconds",
+        "terminalJob"
+      ],
+      "properties": {
+        "definition": { "type": "string", "minLength": 1 },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "durationSeconds": { "type": "integer", "minimum": 0 },
+        "terminalJob": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "jobs": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["fragmentCount", "source"],
+      "properties": {
+        "fragmentCount": { "type": "integer", "minimum": 1 },
+        "source": { "const": "github-actions-job-timing-fragments" }
+      },
+      "additionalProperties": false
+    },
+    "timestamp": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

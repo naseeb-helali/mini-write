@@ -16,6 +16,7 @@ permissions:
   id-token: write
 
 jobs:
+
   # ============================================================
   # 0) VALIDATE
   # ============================================================
@@ -23,7 +24,18 @@ jobs:
     name: Validate Execution Environment
     runs-on: [self-hosted, linux, x64, mini-write]
 
+    env:
+      JOB_KEY: "validate"
+
     steps:
+      - name: Start CI timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-timing
+          date +%s > .ci-timing/started-epoch
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -75,6 +87,45 @@ jobs:
 
           echo "Repository structure validation passed."
 
+      - name: Finalize CI timing
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f .ci-timing/started-epoch
+          test -f .ci-timing/started-at
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          started_epoch="$(cat .ci-timing/started-epoch)"
+          started_at="$(cat .ci-timing/started-at)"
+          duration_seconds="$((completed_epoch - started_epoch))"
+
+          cat > ".ci-timing/${JOB_KEY}.json" <<EOF
+          {
+            "schemaVersion": "1.0",
+            "job": "${JOB_KEY}",
+            "status": "${{ job.status }}",
+            "startedAt": "${started_at}",
+            "completedAt": "${completed_at}",
+            "durationSeconds": ${duration_seconds},
+            "runAttempt": ${{ github.run_attempt }}
+          }
+          EOF
+
+          jq empty ".ci-timing/${JOB_KEY}.json"
+          cat ".ci-timing/${JOB_KEY}.json"
+
+      - name: Upload CI timing fragment
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-ci-timing-${{ env.JOB_KEY }}
+          path: .ci-timing/${{ env.JOB_KEY }}.json
+          if-no-files-found: error
+          retention-days: 30
+
   # ============================================================
   # 1) QUALITY
   # ============================================================
@@ -88,7 +139,18 @@ jobs:
       matrix:
         service: [api, worker]
 
+    env:
+      JOB_KEY: "quality-${{ matrix.service }}"
+
     steps:
+      - name: Start CI timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-timing
+          date +%s > .ci-timing/started-epoch
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -105,6 +167,45 @@ jobs:
         working-directory: ${{ matrix.service }}
         run: npm run lint
 
+      - name: Finalize CI timing
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f .ci-timing/started-epoch
+          test -f .ci-timing/started-at
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          started_epoch="$(cat .ci-timing/started-epoch)"
+          started_at="$(cat .ci-timing/started-at)"
+          duration_seconds="$((completed_epoch - started_epoch))"
+
+          cat > ".ci-timing/${JOB_KEY}.json" <<EOF
+          {
+            "schemaVersion": "1.0",
+            "job": "${JOB_KEY}",
+            "status": "${{ job.status }}",
+            "startedAt": "${started_at}",
+            "completedAt": "${completed_at}",
+            "durationSeconds": ${duration_seconds},
+            "runAttempt": ${{ github.run_attempt }}
+          }
+          EOF
+
+          jq empty ".ci-timing/${JOB_KEY}.json"
+          cat ".ci-timing/${JOB_KEY}.json"
+
+      - name: Upload CI timing fragment
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-ci-timing-${{ env.JOB_KEY }}
+          path: .ci-timing/${{ env.JOB_KEY }}.json
+          if-no-files-found: error
+          retention-days: 30
+
   # ============================================================
   # 2) SECURITY
   # ============================================================
@@ -118,7 +219,18 @@ jobs:
       matrix:
         service: [api, worker]
 
+    env:
+      JOB_KEY: "security-${{ matrix.service }}"
+
     steps:
+      - name: Start CI timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-timing
+          date +%s > .ci-timing/started-epoch
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -136,6 +248,45 @@ jobs:
         continue-on-error: true
         run: npm audit --audit-level=critical
 
+      - name: Finalize CI timing
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f .ci-timing/started-epoch
+          test -f .ci-timing/started-at
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          started_epoch="$(cat .ci-timing/started-epoch)"
+          started_at="$(cat .ci-timing/started-at)"
+          duration_seconds="$((completed_epoch - started_epoch))"
+
+          cat > ".ci-timing/${JOB_KEY}.json" <<EOF
+          {
+            "schemaVersion": "1.0",
+            "job": "${JOB_KEY}",
+            "status": "${{ job.status }}",
+            "startedAt": "${started_at}",
+            "completedAt": "${completed_at}",
+            "durationSeconds": ${duration_seconds},
+            "runAttempt": ${{ github.run_attempt }}
+          }
+          EOF
+
+          jq empty ".ci-timing/${JOB_KEY}.json"
+          cat ".ci-timing/${JOB_KEY}.json"
+
+      - name: Upload CI timing fragment
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-ci-timing-${{ env.JOB_KEY }}
+          path: .ci-timing/${{ env.JOB_KEY }}.json
+          if-no-files-found: error
+          retention-days: 30
+
   # ============================================================
   # 3) TESTS
   # ============================================================
@@ -149,7 +300,18 @@ jobs:
       matrix:
         service: [api, worker]
 
+    env:
+      JOB_KEY: "tests-${{ matrix.service }}"
+
     steps:
+      - name: Start CI timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-timing
+          date +%s > .ci-timing/started-epoch
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -204,13 +366,51 @@ jobs:
           console.log("Coverage gate passed.");
           NODE
 
+      - name: Finalize CI timing
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f .ci-timing/started-epoch
+          test -f .ci-timing/started-at
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          started_epoch="$(cat .ci-timing/started-epoch)"
+          started_at="$(cat .ci-timing/started-at)"
+          duration_seconds="$((completed_epoch - started_epoch))"
+
+          cat > ".ci-timing/${JOB_KEY}.json" <<EOF
+          {
+            "schemaVersion": "1.0",
+            "job": "${JOB_KEY}",
+            "status": "${{ job.status }}",
+            "startedAt": "${started_at}",
+            "completedAt": "${completed_at}",
+            "durationSeconds": ${duration_seconds},
+            "runAttempt": ${{ github.run_attempt }}
+          }
+          EOF
+
+          jq empty ".ci-timing/${JOB_KEY}.json"
+          cat ".ci-timing/${JOB_KEY}.json"
+
+      - name: Upload CI timing fragment
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-ci-timing-${{ env.JOB_KEY }}
+          path: .ci-timing/${{ env.JOB_KEY }}.json
+          if-no-files-found: error
+          retention-days: 30
+
   # ============================================================
   # 4) BUILD + SECURITY SCAN + PUBLISH
   # ============================================================
   build:
     name: Build Artifacts
     needs: [quality, security, tests]
-
     runs-on: [self-hosted, linux, x64, mini-write]
 
     environment:
@@ -228,7 +428,18 @@ jobs:
       api_digest: ${{ steps.api_push.outputs.digest }}
       worker_digest: ${{ steps.worker_push.outputs.digest }}
 
+    env:
+      JOB_KEY: "build"
+
     steps:
+      - name: Start CI timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-timing
+          date +%s > .ci-timing/started-epoch
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -570,6 +781,45 @@ jobs:
           echo "Worker published digest: ${DIGEST}"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
 
+      - name: Finalize CI timing
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f .ci-timing/started-epoch
+          test -f .ci-timing/started-at
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          started_epoch="$(cat .ci-timing/started-epoch)"
+          started_at="$(cat .ci-timing/started-at)"
+          duration_seconds="$((completed_epoch - started_epoch))"
+
+          cat > ".ci-timing/${JOB_KEY}.json" <<EOF
+          {
+            "schemaVersion": "1.0",
+            "job": "${JOB_KEY}",
+            "status": "${{ job.status }}",
+            "startedAt": "${started_at}",
+            "completedAt": "${completed_at}",
+            "durationSeconds": ${duration_seconds},
+            "runAttempt": ${{ github.run_attempt }}
+          }
+          EOF
+
+          jq empty ".ci-timing/${JOB_KEY}.json"
+          cat ".ci-timing/${JOB_KEY}.json"
+
+      - name: Upload CI timing fragment
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-ci-timing-${{ env.JOB_KEY }}
+          path: .ci-timing/${{ env.JOB_KEY }}.json
+          if-no-files-found: error
+          retention-days: 30
+
       # ----------------------------------------------------------
       # MAIN ONLY
       # ----------------------------------------------------------
@@ -589,6 +839,7 @@ jobs:
 
           echo "Published artifact digests are valid."
 
+
   # ============================================================
   # 5) ARTIFACT VERIFICATION
   # ============================================================
@@ -597,7 +848,18 @@ jobs:
     needs: build
     runs-on: [self-hosted, linux, x64, mini-write]
 
+    env:
+      JOB_KEY: "artifact-verification"
+
     steps:
+      - name: Start CI timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-timing
+          date +%s > .ci-timing/started-epoch
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -634,11 +896,6 @@ jobs:
 
       # ----------------------------------------------------------
       # Registry authentication is required only on main.
-      #
-      # Important:
-      # We intentionally do NOT try to inspect local Docker images
-      # from the build job on pull requests. Docker state is not a
-      # reliable cross-job artifact.
       # ----------------------------------------------------------
       - name: Configure AWS credentials (OIDC)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.registry_type == 'ecr'
@@ -749,12 +1006,7 @@ jobs:
           echo "Worker digest verified: ${WORKER_DIGEST}"
 
       # ----------------------------------------------------------
-      # PULL REQUEST
-      #
-      # The images were already built and verified locally in the
-      # build job. We do not falsely claim that the Docker images
-      # still exist in this separate job.
-      # ----------------------------------------------------------
+      # PULL REQUEST      # ----------------------------------------------------------
       - name: Verify pull request artifact metadata
         if: github.event_name == 'pull_request'
         env:
@@ -784,6 +1036,45 @@ jobs:
           echo "Pull request artifact metadata verified."
           echo "Actual image inspection was already performed in the build job."
 
+      - name: Finalize CI timing
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f .ci-timing/started-epoch
+          test -f .ci-timing/started-at
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          started_epoch="$(cat .ci-timing/started-epoch)"
+          started_at="$(cat .ci-timing/started-at)"
+          duration_seconds="$((completed_epoch - started_epoch))"
+
+          cat > ".ci-timing/${JOB_KEY}.json" <<EOF
+          {
+            "schemaVersion": "1.0",
+            "job": "${JOB_KEY}",
+            "status": "${{ job.status }}",
+            "startedAt": "${started_at}",
+            "completedAt": "${completed_at}",
+            "durationSeconds": ${duration_seconds},
+            "runAttempt": ${{ github.run_attempt }}
+          }
+          EOF
+
+          jq empty ".ci-timing/${JOB_KEY}.json"
+          cat ".ci-timing/${JOB_KEY}.json"
+
+      - name: Upload CI timing fragment
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-ci-timing-${{ env.JOB_KEY }}
+          path: .ci-timing/${{ env.JOB_KEY }}.json
+          if-no-files-found: error
+          retention-days: 30
+
   # ============================================================
   # 6) PUBLISH ARTIFACT MANIFEST
   # ============================================================
@@ -798,7 +1089,18 @@ jobs:
 
     runs-on: [self-hosted, linux, x64, mini-write]
 
+    env:
+      JOB_KEY: "publish-manifest"
+
     steps:
+      - name: Start CI timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-timing
+          date +%s > .ci-timing/started-epoch
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -864,13 +1166,6 @@ jobs:
             fs.readFileSync(manifestPath, "utf8")
           );
 
-          /*
-           * Load the schema as an additional sanity check.
-           *
-           * Full JSON Schema engine validation is intentionally not
-           * introduced here yet because that would add a new runtime
-           * dependency to the CI environment.
-           */
           JSON.parse(fs.readFileSync(schemaPath, "utf8"));
 
           const shaPattern = /^[0-9a-f]{40}$/;
@@ -971,5 +1266,324 @@ jobs:
         with:
           name: mini-write-artifact-${{ github.sha }}
           path: artifact/artifact-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Finalize CI timing
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f .ci-timing/started-epoch
+          test -f .ci-timing/started-at
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          started_epoch="$(cat .ci-timing/started-epoch)"
+          started_at="$(cat .ci-timing/started-at)"
+          duration_seconds="$((completed_epoch - started_epoch))"
+
+          cat > ".ci-timing/${JOB_KEY}.json" <<EOF
+          {
+            "schemaVersion": "1.0",
+            "job": "${JOB_KEY}",
+            "status": "${{ job.status }}",
+            "startedAt": "${started_at}",
+            "completedAt": "${completed_at}",
+            "durationSeconds": ${duration_seconds},
+            "runAttempt": ${{ github.run_attempt }}
+          }
+          EOF
+
+          jq empty ".ci-timing/${JOB_KEY}.json"
+          cat ".ci-timing/${JOB_KEY}.json"
+
+      - name: Upload CI timing fragment
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-ci-timing-${{ env.JOB_KEY }}
+          path: .ci-timing/${{ env.JOB_KEY }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # ============================================================
+  # 7) CI TIMING AGGREGATION
+  # ============================================================
+  ci-timing:
+    name: Aggregate CI Timing Evidence
+    if: ${{ always() }}
+    needs:
+      - validate
+      - quality
+      - security
+      - tests
+      - build
+      - artifact-verification
+      - publish-manifest
+    runs-on: [self-hosted, linux, x64, mini-write]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download CI timing fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mini-write-ci-timing-*
+          path: ci-timing-input
+          merge-multiple: false
+
+      - name: Aggregate and validate CI timing evidence
+        shell: bash
+        env:
+          WORKFLOW_STATUS: ${{ join(needs.*.result, ',') }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          COMMIT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+
+          test -d ci-timing-input
+
+          node <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+
+          const root = "ci-timing-input";
+          const files = [];
+
+          function walk(dir) {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = path.join(dir, entry.name);
+              if (entry.isDirectory()) walk(full);
+              else if (entry.isFile() && entry.name.endsWith(".json")) files.push(full);
+            }
+          }
+
+          walk(root);
+
+          if (files.length === 0) {
+            throw new Error("No CI timing fragments were downloaded.");
+          }
+
+          const fragments = files.map(file =>
+            JSON.parse(fs.readFileSync(file, "utf8"))
+          );
+
+          const unique = new Map();
+
+          for (const f of fragments) {
+            if (f.schemaVersion !== "1.0" || !f.job || !f.status) {
+              throw new Error(`Invalid timing fragment: ${f.job || "unknown"}`);
+            }
+            if (!Number.isInteger(f.durationSeconds) || f.durationSeconds < 0) {
+              throw new Error(`Invalid duration: ${f.job}`);
+            }
+            if (unique.has(f.job)) {
+              throw new Error(`Duplicate timing fragment: ${f.job}`);
+            }
+            unique.set(f.job, f);
+          }
+
+          const ordered = [...unique.values()].sort((a, b) =>
+            a.startedAt.localeCompare(b.startedAt)
+          );
+
+          const earliest = ordered.reduce((a, b) =>
+            a.startedAt < b.startedAt ? a : b
+          );
+
+          const latest = ordered.reduce((a, b) =>
+            a.completedAt > b.completedAt ? a : b
+          );
+
+          const start = new Date(earliest.startedAt).getTime();
+          const end = new Date(latest.completedAt).getTime();
+
+          if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+            throw new Error("Invalid E2E timing boundaries.");
+          }
+
+          const workflowStatus =
+            process.env.WORKFLOW_STATUS
+              .split(",")
+              .some(s => ["failure", "cancelled"].includes(s))
+              ? "failed"
+              : "passed";
+
+          const jobs = {};
+
+          for (const f of ordered) {
+            const parts = f.job.split("-");
+            const value = {
+              startedAt: f.startedAt,
+              completedAt: f.completedAt,
+              durationSeconds: f.durationSeconds,
+              status: f.status
+            };
+
+            if (["quality", "security", "tests"].includes(parts[0]) && parts[1]) {
+              jobs[parts[0]] ??= {};
+              jobs[parts[0]][parts.slice(1).join("-")] = value;
+            } else {
+              jobs[f.job.replaceAll("-", "_")] = value;
+            }
+          }
+
+          const evidence = {
+            schemaVersion: "1.0",
+            project: "mini-write",
+            pipeline: "ci",
+            status: workflowStatus,
+            run: {
+              id: String(process.env.RUN_ID),
+              attempt: Number(process.env.RUN_ATTEMPT),
+              commit: process.env.COMMIT_SHA,
+              event: process.env.EVENT_NAME,
+              ref: process.env.GIT_REF
+            },
+            endToEnd: {
+              definition: "first-job-start-to-last-job-end",
+              startedAt: earliest.startedAt,
+              completedAt: latest.completedAt,
+              durationSeconds: Math.floor((end - start) / 1000),
+              terminalJob: latest.job
+            },
+            jobs,
+            evidence: {
+              fragmentCount: ordered.length,
+              source: "github-actions-job-timing-fragments"
+            },
+            timestamp: new Date().toISOString()
+          };
+
+          // ------- تحقق يدوي مطابق للـ schema -------
+          const requiredTop = [
+            "schemaVersion", "project", "pipeline", "status",
+            "run", "endToEnd", "jobs", "evidence", "timestamp"
+          ];
+          for (const k of requiredTop) {
+            if (!(k in evidence)) throw new Error(`Missing top-level field: ${k}`);
+          }
+
+          const requiredRun = ["id", "attempt", "commit", "event", "ref"];
+          for (const k of requiredRun) {
+            if (!(k in evidence.run)) throw new Error(`Missing run.${k}`);
+          }
+
+          const requiredE2E = [
+            "definition", "startedAt", "completedAt",
+            "durationSeconds", "terminalJob"
+          ];
+          for (const k of requiredE2E) {
+            if (!(k in evidence.endToEnd)) throw new Error(`Missing endToEnd.${k}`);
+          }
+
+          const requiredEvidence = ["fragmentCount", "source"];
+          for (const k of requiredEvidence) {
+            if (!(k in evidence.evidence)) throw new Error(`Missing evidence.${k}`);
+          }
+
+          if (evidence.evidence.source !== "github-actions-job-timing-fragments") {
+            throw new Error("Invalid evidence.source");
+          }
+
+          if (!/^[0-9a-f]{40}$/.test(evidence.run.commit)) {
+            throw new Error("Invalid run.commit");
+          }
+
+          if (
+            !Number.isInteger(evidence.run.attempt) ||
+            evidence.run.attempt < 1
+          ) {
+            throw new Error("Invalid run.attempt");
+          }
+
+          if (!["passed", "failed"].includes(evidence.status)) {
+            throw new Error("Invalid status");
+          }
+
+          if (typeof evidence.endToEnd.terminalJob !== "string" || !evidence.endToEnd.terminalJob) {
+            throw new Error("Invalid endToEnd.terminalJob");
+          }
+
+          if (
+            !Number.isInteger(evidence.endToEnd.durationSeconds) ||
+            evidence.endToEnd.durationSeconds < 0
+          ) {
+            throw new Error("Invalid endToEnd.durationSeconds");
+          }
+
+          fs.mkdirSync("ci-timing-output", { recursive: true });
+          fs.writeFileSync(
+            "ci-timing-output/ci-timing.json",
+            JSON.stringify(evidence, null, 2) + "\n"
+          );
+
+          console.log(JSON.stringify(evidence, null, 2));
+          NODE
+
+          node <<'NODE'
+          const fs = require("fs");
+          const schema = JSON.parse(
+            fs.readFileSync("ci/ci-timing.schema.json", "utf8")
+          );
+          const evidence = JSON.parse(
+            fs.readFileSync("ci-timing-output/ci-timing.json", "utf8")
+          );
+
+          if (schema.$schema !== "https://json-schema.org/draft/2020-12/schema") {
+            throw new Error("Unexpected schema draft");
+          }
+
+          if (evidence.schemaVersion !== schema.properties.schemaVersion.const) {
+            throw new Error("Schema version mismatch");
+          }
+
+          if (evidence.project !== "mini-write" || evidence.pipeline !== "ci") {
+            throw new Error("Invalid evidence identity");
+          }
+
+          if (!["passed", "failed"].includes(evidence.status)) {
+            throw new Error("Invalid status");
+          }
+
+          const requiredTop = [
+            "schemaVersion", "project", "pipeline", "status",
+            "run", "endToEnd", "jobs", "evidence", "timestamp"
+          ];
+
+          for (const k of requiredTop) {
+            if (!(k in evidence)) {
+              throw new Error(`Schema contract missing: ${k}`);
+            }
+          }
+
+          if (
+            !Number.isInteger(evidence.endToEnd.durationSeconds) ||
+            evidence.endToEnd.durationSeconds < 0
+          ) {
+            throw new Error("Invalid E2E duration");
+          }
+
+          if (
+            !Number.isInteger(evidence.evidence.fragmentCount) ||
+            evidence.evidence.fragmentCount < 1
+          ) {
+            throw new Error("Invalid evidence.fragmentCount");
+          }
+
+          console.log("CI timing evidence contract validation passed.");
+          NODE
+
+      - name: Upload CI timing evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-ci-timing-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-timing-output/ci-timing.json
           if-no-files-found: error
           retention-days: 30
