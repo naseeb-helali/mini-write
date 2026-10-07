@@ -402,7 +402,7 @@ jobs:
       ||
       (
         github.event_name == 'workflow_dispatch' &&
-        inputs.environment == 'staging' || inputs.environment == 'production'
+        inputs.environment == 'staging'
       )
 
     runs-on:
@@ -739,7 +739,6 @@ jobs:
     needs:
       - resolve-artifact
       - validate-artifact
-      - deploy-staging
 
     if: >
       (
@@ -1512,6 +1511,18 @@ jobs:
 
           ./ci/rollback/validate.sh
 
+      - name: Start rollback timer
+        id: rollback-timer-start
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          started_epoch="$(date +%s)"
+          started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          echo "started_epoch=${started_epoch}" >> "$GITHUB_OUTPUT"
+          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+
       - name: Execute rollback
         env:
           API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
@@ -1561,10 +1572,41 @@ jobs:
           ./ci/deployment/verify.sh \
             --request "$ROLLBACK_REQUEST"
 
+      - name: Capture rollback timing
+        id: rollback-timing
+        shell: bash
+        env:
+          ROLLBACK_STARTED_EPOCH: ${{ steps.rollback-timer-start.outputs.started_epoch }}
+          ROLLBACK_STARTED_AT: ${{ steps.rollback-timer-start.outputs.started_at }}
+        run: |
+          set -euo pipefail
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          duration_seconds="$((completed_epoch - ROLLBACK_STARTED_EPOCH))"
+
+          echo "rollback_started_at=${ROLLBACK_STARTED_AT}" >> "$GITHUB_OUTPUT"
+          echo "rollback_completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
+          echo "rollback_duration_seconds=${duration_seconds}" >> "$GITHUB_OUTPUT"
+
+          cat > deployment-output/rollback-timing.json <<EOF
+          {
+            "rollbackStartedAt": "${ROLLBACK_STARTED_AT}",
+            "rollbackCompletedAt": "${completed_at}",
+            "rollbackDurationSeconds": ${duration_seconds}
+          }
+          EOF
+
+          jq empty deployment-output/rollback-timing.json
+
       - name: Record rollback verification evidence
         env:
           FAILED_SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
           TARGET_SOURCE_SHA: ${{ steps.resolve-previous.outputs.source_sha }}
+
+          ROLLBACK_STARTED_AT: ${{ steps.rollback-timing.outputs.rollback_started_at }}
+          ROLLBACK_COMPLETED_AT: ${{ steps.rollback-timing.outputs.rollback_completed_at }}
+          ROLLBACK_DURATION_SECONDS: ${{ steps.rollback-timing.outputs.rollback_duration_seconds }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1586,6 +1628,13 @@ jobs:
                   "failedRelease": os.environ["FAILED_SOURCE_SHA"],
                   "targetRelease": os.environ["TARGET_SOURCE_SHA"]
               },
+              "rollbackTiming": {
+                  "startedAt": os.environ["ROLLBACK_STARTED_AT"],
+                  "completedAt": os.environ["ROLLBACK_COMPLETED_AT"],
+                  "durationSeconds": int(
+                      os.environ["ROLLBACK_DURATION_SECONDS"]
+                  )
+              },
               "timestamp": datetime.now(timezone.utc).isoformat()
           }
 
@@ -1604,6 +1653,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mini-write-rollback-verification-${{ needs.resolve-artifact.outputs.source_sha }}
-          path: evidence/rollback-verification.json
+          path: |
+            evidence/rollback-verification.json
+            deployment-output/rollback-timing.json
           if-no-files-found: error
           retention-days: 90
