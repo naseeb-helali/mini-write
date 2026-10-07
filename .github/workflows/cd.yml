@@ -741,14 +741,18 @@ jobs:
       - validate-artifact
 
     if: >
+      always()
+      &&
       (
-        github.event_name == 'push' &&
-        startsWith(github.ref, 'refs/tags/v')
-      )
-      ||
-      (
-        github.event_name == 'workflow_dispatch' &&
-        inputs.environment == 'production'
+        (
+          github.event_name == 'push' &&
+          startsWith(github.ref, 'refs/tags/v')
+        )
+        ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          inputs.environment == 'production'
+        )
       )
 
     runs-on:
