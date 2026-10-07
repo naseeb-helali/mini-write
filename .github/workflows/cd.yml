@@ -848,7 +848,7 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: mini-write-promotion-eligibility-${{ needs.resolve-artifact.outputs.source_sha }}
-          path: staging-evidence
+          path: .
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ steps.staging.outputs.run_id }}
