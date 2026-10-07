@@ -149,6 +149,10 @@ jobs:
       JOB_KEY: "quality-${{ matrix.service }}"
 
     steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Start CI timing
         shell: bash
         run: |
@@ -156,9 +160,6 @@ jobs:
           mkdir -p .ci-timing
           date +%s > .ci-timing/started-epoch
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -229,6 +230,10 @@ jobs:
       JOB_KEY: "security-${{ matrix.service }}"
 
     steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Start CI timing
         shell: bash
         run: |
@@ -236,9 +241,6 @@ jobs:
           mkdir -p .ci-timing
           date +%s > .ci-timing/started-epoch
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -310,6 +312,10 @@ jobs:
       JOB_KEY: "tests-${{ matrix.service }}"
 
     steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Start CI timing
         shell: bash
         run: |
@@ -317,9 +323,6 @@ jobs:
           mkdir -p .ci-timing
           date +%s > .ci-timing/started-epoch
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -438,6 +441,10 @@ jobs:
       JOB_KEY: "build"
 
     steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Start CI timing
         shell: bash
         run: |
@@ -445,9 +452,6 @@ jobs:
           mkdir -p .ci-timing
           date +%s > .ci-timing/started-epoch
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       # ----------------------------------------------------------
       # REGISTRY CONFIGURATION
@@ -858,6 +862,10 @@ jobs:
       JOB_KEY: "artifact-verification"
 
     steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Start CI timing
         shell: bash
         run: |
@@ -865,9 +873,6 @@ jobs:
           mkdir -p .ci-timing
           date +%s > .ci-timing/started-epoch
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       # ----------------------------------------------------------
       # Always verify metadata passed from the build job
@@ -1012,7 +1017,8 @@ jobs:
           echo "Worker digest verified: ${WORKER_DIGEST}"
 
       # ----------------------------------------------------------
-      # PULL REQUEST      # ----------------------------------------------------------
+      # PULL REQUEST      
+      # ----------------------------------------------------------
       - name: Verify pull request artifact metadata
         if: github.event_name == 'pull_request'
         env:
@@ -1099,6 +1105,10 @@ jobs:
       JOB_KEY: "publish-manifest"
 
     steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Start CI timing
         shell: bash
         run: |
@@ -1106,9 +1116,6 @@ jobs:
           mkdir -p .ci-timing
           date +%s > .ci-timing/started-epoch
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Generate artifact manifest
         env:
