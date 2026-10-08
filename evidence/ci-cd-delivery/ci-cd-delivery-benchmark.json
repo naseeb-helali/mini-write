@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "1.0",
+  "project": "mini-write",
+  "evidenceArea": "CI/CD & Delivery",
+  "status": "closed",
+  "measurement": {
+    "scope": "runner-execution",
+    "queueTimeIncluded": false,
+    "evidencePublicationIncluded": false,
+    "e2eDefinition": "first instrumented job start to last instrumented job completion",
+    "buildDefinition": "build job start to timing finalization"
+  },
+  "baseline": {
+    "e2eDurationSeconds": 1866,
+    "buildDurationSeconds": 954
+  },
+  "optimizedRuns": {
+    "e2eDurationSeconds": [
+      887,
+      908,
+      893
+    ],
+    "buildDurationSeconds": [
+      412,
+      420,
+      410
+    ]
+  },
+  "summary": {
+    "e2eMedianSeconds": 893,
+    "e2eReductionSeconds": 973,
+    "e2eReductionPercent": 52.14,
+    "buildMedianSeconds": 412,
+    "buildReductionSeconds": 542,
+    "buildReductionPercent": 56.81
+  },
+  "engineeringChange": {
+    "problem": "The second Trivy invocation repeated scanner setup and vulnerability-database/cache lifecycle work within the same CI job.",
+    "change": [
+      "Reuse the existing Trivy installation for the Worker scan.",
+      "Reuse the existing local Trivy cache/database directory.",
+      "Disable the second invocation's cache lifecycle with cache: false.",
+      "Preserve the Worker security scan."
+    ],
+    "observedResult": "The Worker Trivy action invocation completed in approximately 1 second after redundant setup and DB restoration were removed."
+  },
+  "securityPreservation": {
+    "apiScanRetained": true,
+    "workerScanRetained": true,
+    "severityPolicyChanged": false,
+    "scannerRemoved": false
+  },
+  "claimsBoundary": {
+    "supported": [
+      "Measured CI E2E median decreased from 1866s to 893s across three optimized observations.",
+      "Measured build median decreased from 954s to 412s.",
+      "Redundant Trivy initialization/cache restoration was removed from the second invocation.",
+      "Both API and Worker Trivy scans remained enabled."
+    ],
+    "notClaimed": [
+      "Production-scale CI performance.",
+      "Universal Trivy performance independent of runner/environment.",
+      "A universal 1-second vulnerability-scan benchmark; 1s is the observed second action invocation."
+    ]
+  }
+}

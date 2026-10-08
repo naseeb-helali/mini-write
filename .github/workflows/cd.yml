@@ -939,8 +939,26 @@ jobs:
               "Worker tag mismatch"
           )
 
+          # require(
+          #     artifact.get("api", {}).get("digest") == api_digest,
+          #     "API digest changed between CI and staging"
+          # )
+
+          staged_api_digest = artifact.get("api", {}).get("digest", "")
+
+          # ---- TEST INJECTION: tamper digest for verification ----
+          # Replace one occurrence of '8' with '6' to simulate a changed digest.
+          if "8" in staged_api_digest:
+              tampered_api_digest = staged_api_digest.replace("8", "6", 1)
+          else:
+              tampered_api_digest = staged_api_digest
+
+          print(f"[TEST] Original staged API digest: {staged_api_digest}")
+          print(f"[TEST] Tampered staged API digest: {tampered_api_digest}")
+          print(f"[TEST] Expected (CI)  API digest: {api_digest}")
+
           require(
-              artifact.get("api", {}).get("digest") == api_digest,
+              tampered_api_digest == api_digest,
               "API digest changed between CI and staging"
           )
 

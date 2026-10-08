@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "1.0",
+  "project": "mini-write",
+  "evidenceArea": "deployment-recovery",
+  "status": "closed",
+  "closure": {
+    "type": "measurement-and-validation",
+    "scope": "controlled AWS ECS environment",
+    "productionClaim": false
+  },
+  "measurements": {
+    "deployment": {
+      "name": "staging deployment duration",
+      "scope": "deployment execution start to successful deployment verification completion",
+      "startedAt": "2026-10-05T20:07:10Z",
+      "completedAt": "2026-10-05T20:10:45Z",
+      "durationSeconds": 215
+    },
+    "rollback": {
+      "name": "rollback duration",
+      "scope": "rollback execution start to successful rollback verification completion",
+      "startedAt": "2026-10-07T19:22:03Z",
+      "completedAt": "2026-10-07T19:25:05Z",
+      "durationSeconds": 182,
+      "excluded": [
+        "previous-release resolution",
+        "rollback target validation",
+        "repository checkout",
+        "AWS authentication",
+        "ECR authentication"
+      ]
+    }
+  },
+  "validatedScenarios": {
+    "controlledDeploymentFailure": true,
+    "automaticRollback": true,
+    "rollbackVerification": true,
+    "artifactIdentityVerification": true,
+    "applicationReadinessVerification": true
+  },
+  "releaseTransition": {
+    "failedRelease": "68e58eb8b101de52bc5ac3c7372d2035895485bc",
+    "targetRelease": "6b0c184671398e2669c3427b369c2113efc97eb7"
+  },
+  "claimsBoundary": {
+    "supported": [
+      "Measured 215-second staging deployment execution",
+      "Measured 182-second rollback execution",
+      "Controlled deployment verification failure triggered rollback",
+      "Rollback verification passed",
+      "Deployment evidence retained artifact digests and ECS task-definition identity",
+      "Deployment verification included artifact identity and application readiness"
+    ],
+    "notSupported": [
+      "Production SLA/SLO",
+      "Production rollback SLA",
+      "Statistically representative average deployment time",
+      "Statistically representative average rollback time",
+      "High-scale deployment performance",
+      "Multi-region recovery performance",
+      "Disaster recovery RTO/RPO",
+      "Zero-downtime guarantee",
+      "Production incident MTTR",
+      "Percentage improvement between deployment and rollback"
+    ]
+  }
+}
