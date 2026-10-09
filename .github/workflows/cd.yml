@@ -915,6 +915,25 @@ jobs:
 
             core.setOutput("run_id", String(matchedRun.id));
 
+      - name: Write evidence with references
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          cat > evidence.json <<EOF
+          {
+            "evidenceReferences": {
+              "githubActionsRunUrl": "${RUN_URL}",
+              "githubActionsRunId": "${RUN_ID}"
+            }
+          }
+          EOF
+
+          cat evidence.json
+
       - name: Download staging promotion evidence
         uses: actions/download-artifact@v5
         with:
