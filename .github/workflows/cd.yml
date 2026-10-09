@@ -710,6 +710,77 @@ jobs:
 
           cat staging-evidence/evidence/promotion-eligibility.json
 
+      - name: Inject digest tamper for testing
+        shell: bash
+        env:
+          TAMPER_ENABLED: "true"
+        run: |
+          set -euo pipefail
+
+          EVIDENCE_FILE="staging-evidence/evidence/promotion-eligibility.json"
+
+          test -f "$EVIDENCE_FILE"
+
+          ORIGINAL_API_DIGEST="$(
+            jq -er '.artifact.api.digest' "$EVIDENCE_FILE"
+          )"
+
+          echo "Original API digest: $ORIGINAL_API_DIGEST"
+
+          if [[ "${TAMPER_ENABLED}" != "true" ]]; then
+            echo "Tamper disabled. Skipping."
+            exit 0
+          fi
+
+          # Flip the first hex character after "sha256:" to guarantee a change.
+          if [[ "$ORIGINAL_API_DIGEST" =~ ^sha256:([0-9a-f]{64})$ ]]; then
+            HEX_PART="${BASH_REMATCH[1]}"
+            FIRST_CHAR="${HEX_PART:0:1}"
+
+            if [[ "$FIRST_CHAR" == "0" ]]; then
+              NEW_FIRST="1"
+            else
+              NEW_FIRST="0"
+            fi
+
+            TAMPERED_API_DIGEST="sha256:${NEW_FIRST}${HEX_PART:1}"
+          else
+            echo "::error::API digest has unexpected format: $ORIGINAL_API_DIGEST"
+            exit 1
+          fi
+
+          echo "Tampered API digest: $TAMPERED_API_DIGEST"
+
+          TMP_FILE="$(mktemp)"
+          jq --arg new "$TAMPERED_API_DIGEST" \
+            '.artifact.api.digest = $new' \
+            "$EVIDENCE_FILE" > "$TMP_FILE"
+          mv "$TMP_FILE" "$EVIDENCE_FILE"
+
+          echo "=== Updated evidence ==="
+          cat "$EVIDENCE_FILE"
+
+          jq -er '.artifact.api.digest' "$EVIDENCE_FILE"
+
+      - name: Write evidence with references
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          cat > evidence.json <<EOF
+          {
+            "evidenceReferences": {
+              "githubActionsRunUrl": "${RUN_URL}",
+              "githubActionsRunId": "${RUN_ID}"
+            }
+          }
+          EOF
+
+          cat evidence.json
+
       - name: Upload promotion eligibility evidence
         uses: actions/upload-artifact@v4
         with:

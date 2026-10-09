@@ -1,0 +1,41 @@
+{
+"schemaVersion": "1.0",
+"project": "mini-write",
+"gate": "release-artifact-management",
+"status": "closed",
+"validation": {
+"positiveReleasePath": {
+"status": "supported-by-existing-evidence",
+"scope": [
+"artifact identity validation",
+"digest-based deployment",
+"runtime deployment verification"
+]
+},
+"apiDigestMismatch": {
+"status": "passed",
+"injectionPoint": "promotion-eligibility.json after staging evidence generation",
+"validator": "original API digest comparison",
+"expectedOutcome": "promotion eligibility failure",
+"observedOutcome": "API digest mismatch rejected"
+},
+"productionReleaseGate": {
+"status": "passed",
+"expectedOutcome": "production-release does not execute",
+"observedOutcome": "production-release did not execute"
+}
+},
+"metrics": {
+"status": "not-applicable",
+"reason": "Correctness and enforcement are the primary validation objectives; no artificial performance metric is needed."
+},
+"limitations": [
+"No artifact-signing or SLSA compliance claim",
+"No claim of exhaustive tampering resistance",
+"No production-scale reliability claim"
+],
+"evidenceReferences": {
+"githubActionsRunUrl": "REPLACE_WITH_ACTUAL_RUN_URL",
+"githubActionsRunId": "REPLACE_WITH_ACTUAL_RUN_ID"
+}
+}
