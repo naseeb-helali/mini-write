@@ -262,48 +262,369 @@ resource "aws_iam_role_policy" "iac_plan_additional_reads" {
 }
 
 # ==========================================
-# Managed Policy Attachments for iac_apply
+# Custom Scoped Policies for iac_apply
+# (Replaces FullAccess managed policies)
 # ==========================================
-# 1. EC2, VPC & Load Balancers (ALB)
-resource "aws_iam_role_policy_attachment" "iac_apply_ec2_full" {
-  role       = aws_iam_role.iac_apply.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+
+# ------------------------------------------
+# 1. EC2 / VPC / Security Groups / ALB
+# ------------------------------------------
+data "aws_iam_policy_document" "iac_apply_ec2_scoped" {
+  statement {
+    sid    = "EC2AndVPCReadWrite"
+    effect = "Allow"
+    actions = [
+      "ec2:Describe*",
+      "ec2:CreateVpc", "ec2:DeleteVpc", "ec2:ModifyVpcAttribute",
+      "ec2:CreateSubnet", "ec2:DeleteSubnet", "ec2:ModifySubnetAttribute",
+      "ec2:CreateRouteTable", "ec2:DeleteRouteTable",
+      "ec2:CreateRoute", "ec2:DeleteRoute",
+      "ec2:AssociateRouteTable", "ec2:DisassociateRouteTable",
+      "ec2:ReplaceRouteTableAssociation",
+      "ec2:CreateInternetGateway", "ec2:DeleteInternetGateway",
+      "ec2:AttachInternetGateway", "ec2:DetachInternetGateway",
+      "ec2:CreateNatGateway", "ec2:DeleteNatGateway",
+      "ec2:AllocateAddress", "ec2:ReleaseAddress",
+      "ec2:AssociateAddress", "ec2:DisassociateAddress",
+      "ec2:CreateTags", "ec2:DeleteTags",
+      "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup",
+      "ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress",
+      "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress",
+      "ec2:ModifySecurityGroupRules"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ELBReadWrite"
+    effect = "Allow"
+    actions = [
+      "elasticloadbalancing:Describe*",
+      "elasticloadbalancing:CreateLoadBalancer", "elasticloadbalancing:DeleteLoadBalancer",
+      "elasticloadbalancing:ModifyLoadBalancerAttributes",
+      "elasticloadbalancing:CreateTargetGroup", "elasticloadbalancing:DeleteTargetGroup",
+      "elasticloadbalancing:ModifyTargetGroup", "elasticloadbalancing:ModifyTargetGroupAttributes",
+      "elasticloadbalancing:RegisterTargets", "elasticloadbalancing:DeregisterTargets",
+      "elasticloadbalancing:CreateListener", "elasticloadbalancing:DeleteListener",
+      "elasticloadbalancing:ModifyListener",
+      "elasticloadbalancing:AddTags", "elasticloadbalancing:RemoveTags"
+    ]
+    resources = ["*"]
+  }
 }
-# 2. RDS Databases
-resource "aws_iam_role_policy_attachment" "iac_apply_rds_full" {
-  role       = aws_iam_role.iac_apply.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonRDSFullAccess"
+
+resource "aws_iam_role_policy" "iac_apply_ec2_scoped" {
+  name   = "${var.project}-iac-apply-ec2-scoped-policy"
+  role   = aws_iam_role.iac_apply.name
+  policy = data.aws_iam_policy_document.iac_apply_ec2_scoped.json
 }
-# 3. S3 Storage
-resource "aws_iam_role_policy_attachment" "iac_apply_s3_full" {
-  role       = aws_iam_role.iac_apply.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+
+# ------------------------------------------
+# 2. IAM (Scoped to mini-write-* roles/policies + ECS PassRole)
+# ------------------------------------------
+data "aws_iam_policy_document" "iac_apply_iam_scoped" {
+  statement {
+    sid    = "IAMReadAll"
+    effect = "Allow"
+    actions = [
+      "iam:GetRole", "iam:GetPolicy", "iam:GetPolicyVersion",
+      "iam:GetRolePolicy", "iam:ListRoles", "iam:ListRolePolicies",
+      "iam:ListAttachedRolePolicies", "iam:ListPolicies",
+      "iam:ListPolicyVersions", "iam:ListInstanceProfilesForRole",
+      "iam:ListOpenIDConnectProviders", "iam:GetOpenIDConnectProvider"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "IAMManageProjectRoles"
+    effect = "Allow"
+    actions = [
+      "iam:CreateRole", "iam:DeleteRole", "iam:UpdateRole",
+      "iam:UpdateAssumeRolePolicy", "iam:AttachRolePolicy",
+      "iam:DetachRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy",
+      "iam:TagRole", "iam:UntagRole"
+    ]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-*"
+    ]
+  }
+
+  statement {
+    sid     = "IAMPassRoleToECS"
+    effect  = "Allow"
+    actions = ["iam:PassRole"]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-*"
+    ]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid    = "IAMOIDCManage"
+    effect = "Allow"
+    actions = [
+      "iam:CreateOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider",
+      "iam:UpdateOpenIDConnectProviderThumbprint",
+      "iam:AddClientIDToOpenIDConnectProvider",
+      "iam:RemoveClientIDFromOpenIDConnectProvider",
+      "iam:TagOpenIDConnectProvider"
+    ]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
+    ]
+  }
+
+  statement {
+    sid       = "IAMServiceLinkedRoles"
+    effect    = "Allow"
+    actions   = ["iam:CreateServiceLinkedRole"]
+    resources = ["*"]
+    condition {
+      test     = "StringLike"
+      variable = "iam:AWSServiceName"
+      values = [
+        "ecs.amazonaws.com",
+        "rds.amazonaws.com",
+        "elasticache.amazonaws.com",
+        "elasticloadbalancing.amazonaws.com"
+      ]
+    }
+  }
 }
-# 4. ECR Repositories
-resource "aws_iam_role_policy_attachment" "iac_apply_ecr_full" {
-  role       = aws_iam_role.iac_apply.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess"
+
+resource "aws_iam_role_policy" "iac_apply_iam_scoped" {
+  name   = "${var.project}-iac-apply-iam-scoped-policy"
+  role   = aws_iam_role.iac_apply.name
+  policy = data.aws_iam_policy_document.iac_apply_iam_scoped.json
 }
-# 5. CloudWatch Logs & Alarms
-resource "aws_iam_role_policy_attachment" "iac_apply_cloudwatch_full" {
-  role       = aws_iam_role.iac_apply.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchFullAccess"
+
+# ------------------------------------------
+# 3. RDS (Scoped to project)
+# ------------------------------------------
+data "aws_iam_policy_document" "iac_apply_rds_scoped" {
+  statement {
+    sid       = "RDSRead"
+    effect    = "Allow"
+    actions   = ["rds:Describe*", "rds:ListTagsForResource"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "RDSManageProject"
+    effect = "Allow"
+    actions = [
+      "rds:CreateDBInstance", "rds:DeleteDBInstance", "rds:ModifyDBInstance",
+      "rds:RebootDBInstance", "rds:AddTagsToResource", "rds:RemoveTagsFromResource",
+      "rds:CreateDBSubnetGroup", "rds:DeleteDBSubnetGroup", "rds:ModifyDBSubnetGroup",
+      "rds:CreateDBParameterGroup", "rds:DeleteDBParameterGroup", "rds:ModifyDBParameterGroup"
+    ]
+    resources = [
+      "arn:aws:rds:${var.aws_region}:${data.aws_caller_identity.current.account_id}:db:${var.project}-*",
+      "arn:aws:rds:${var.aws_region}:${data.aws_caller_identity.current.account_id}:subgrp:${var.project}-*",
+      "arn:aws:rds:${var.aws_region}:${data.aws_caller_identity.current.account_id}:pg:${var.project}-*"
+    ]
+  }
 }
-# 6. ElastiCache (Redis)
-resource "aws_iam_role_policy_attachment" "iac_apply_elasticache_full" {
-  role       = aws_iam_role.iac_apply.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonElastiCacheFullAccess"
+
+resource "aws_iam_role_policy" "iac_apply_rds_scoped" {
+  name   = "${var.project}-iac-apply-rds-scoped-policy"
+  role   = aws_iam_role.iac_apply.name
+  policy = data.aws_iam_policy_document.iac_apply_rds_scoped.json
 }
-# 7. ECS Clusters & Services
-resource "aws_iam_role_policy_attachment" "iac_apply_ecs_full" {
-  role       = aws_iam_role.iac_apply.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonECS_FullAccess"
+
+# ------------------------------------------
+# 4. S3 (Scoped to state bucket + project buckets)
+# ------------------------------------------
+data "aws_iam_policy_document" "iac_apply_s3_scoped" {
+  statement {
+    sid    = "S3ProjectBucketsReadWrite"
+    effect = "Allow"
+    actions = [
+      "s3:CreateBucket", "s3:DeleteBucket",
+      "s3:ListBucket", "s3:GetBucket*", "s3:PutBucket*",
+      "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+      "s3:GetObjectVersion", "s3:DeleteObjectVersion"
+    ]
+    resources = [
+      "arn:aws:s3:::${var.project}-${var.environment}-*",
+      "arn:aws:s3:::${var.project}-${var.environment}-*/*"
+    ]
+  }
+
+  statement {
+    sid    = "S3StateBucketAccess"
+    effect = "Allow"
+    actions = [
+      "s3:ListBucket", "s3:GetBucketLocation", "s3:GetBucketVersioning",
+      "s3:GetObject", "s3:PutObject", "s3:DeleteObject"
+    ]
+    resources = [
+      data.aws_s3_bucket.tfstate.arn,
+      "${data.aws_s3_bucket.tfstate.arn}/*"
+    ]
+  }
 }
-# 8. IAM Roles & Policies Management
-resource "aws_iam_role_policy_attachment" "iac_apply_iam_full" {
-  role       = aws_iam_role.iac_apply.name
-  policy_arn = "arn:aws:iam::aws:policy/IAMFullAccess"
+
+resource "aws_iam_role_policy" "iac_apply_s3_scoped" {
+  name   = "${var.project}-iac-apply-s3-scoped-policy"
+  role   = aws_iam_role.iac_apply.name
+  policy = data.aws_iam_policy_document.iac_apply_s3_scoped.json
 }
+
+# ------------------------------------------
+# 5. ECR (Scoped to project repos)
+# ------------------------------------------
+data "aws_iam_policy_document" "iac_apply_ecr_scoped" {
+  statement {
+    sid    = "ECRRead"
+    effect = "Allow"
+    actions = [
+      "ecr:Describe*", "ecr:List*",
+      "ecr:GetLifecyclePolicy", "ecr:GetRepositoryPolicy"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ECRManageProject"
+    effect = "Allow"
+    actions = [
+      "ecr:CreateRepository", "ecr:DeleteRepository",
+      "ecr:PutLifecyclePolicy", "ecr:DeleteLifecyclePolicy",
+      "ecr:SetRepositoryPolicy", "ecr:DeleteRepositoryPolicy",
+      "ecr:TagResource", "ecr:UntagResource"
+    ]
+    resources = [
+      "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.project}-*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "iac_apply_ecr_scoped" {
+  name   = "${var.project}-iac-apply-ecr-scoped-policy"
+  role   = aws_iam_role.iac_apply.name
+  policy = data.aws_iam_policy_document.iac_apply_ecr_scoped.json
+}
+
+# ------------------------------------------
+# 6. CloudWatch Logs & Alarms
+# ------------------------------------------
+data "aws_iam_policy_document" "iac_apply_cloudwatch_scoped" {
+  statement {
+    sid    = "LogsManageProject"
+    effect = "Allow"
+    actions = [
+      "logs:Describe*", "logs:ListTagsForResource",
+      "logs:CreateLogGroup", "logs:DeleteLogGroup",
+      "logs:PutRetentionPolicy", "logs:DeleteRetentionPolicy",
+      "logs:TagResource", "logs:UntagResource"
+    ]
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/${var.project}-*",
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/${var.project}-*:*"
+    ]
+  }
+
+  statement {
+    sid    = "AlarmsManageProject"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:DescribeAlarms", "cloudwatch:ListTagsForResource",
+      "cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms",
+      "cloudwatch:TagResource", "cloudwatch:UntagResource"
+    ]
+    resources = [
+      "arn:aws:cloudwatch:${var.aws_region}:${data.aws_caller_identity.current.account_id}:alarm:${var.project}-*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "iac_apply_cloudwatch_scoped" {
+  name   = "${var.project}-iac-apply-cloudwatch-scoped-policy"
+  role   = aws_iam_role.iac_apply.name
+  policy = data.aws_iam_policy_document.iac_apply_cloudwatch_scoped.json
+}
+
+# ------------------------------------------
+# 7. ElastiCache
+# ------------------------------------------
+data "aws_iam_policy_document" "iac_apply_elasticache_scoped" {
+  statement {
+    sid       = "ElastiCacheRead"
+    effect    = "Allow"
+    actions   = ["elasticache:Describe*", "elasticache:ListTagsForResource"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ElastiCacheManageProject"
+    effect = "Allow"
+    actions = [
+      "elasticache:CreateReplicationGroup", "elasticache:DeleteReplicationGroup",
+      "elasticache:ModifyReplicationGroup",
+      "elasticache:CreateCacheSubnetGroup", "elasticache:DeleteCacheSubnetGroup",
+      "elasticache:ModifyCacheSubnetGroup",
+      "elasticache:AddTagsToResource", "elasticache:RemoveTagsFromResource"
+    ]
+    resources = [
+      "arn:aws:elasticache:${var.aws_region}:${data.aws_caller_identity.current.account_id}:replicationgroup:${var.project}-*",
+      "arn:aws:elasticache:${var.aws_region}:${data.aws_caller_identity.current.account_id}:subnetgroup:${var.project}-*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "iac_apply_elasticache_scoped" {
+  name   = "${var.project}-iac-apply-elasticache-scoped-policy"
+  role   = aws_iam_role.iac_apply.name
+  policy = data.aws_iam_policy_document.iac_apply_elasticache_scoped.json
+}
+
+# ------------------------------------------
+# 8. ECS
+# ------------------------------------------
+data "aws_iam_policy_document" "iac_apply_ecs_scoped" {
+  statement {
+    sid       = "ECSRead"
+    effect    = "Allow"
+    actions   = ["ecs:Describe*", "ecs:List*"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ECSManageProject"
+    effect = "Allow"
+    actions = [
+      "ecs:CreateCluster", "ecs:DeleteCluster", "ecs:UpdateCluster",
+      "ecs:CreateService", "ecs:DeleteService", "ecs:UpdateService",
+      "ecs:TagResource", "ecs:UntagResource"
+    ]
+    resources = [
+      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/${var.project}-*",
+      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.project}-*/*"
+    ]
+  }
+
+  statement {
+    sid    = "ECSTaskDefinitions"
+    effect = "Allow"
+    actions = [
+      "ecs:RegisterTaskDefinition", "ecs:DeregisterTaskDefinition"
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "iac_apply_ecs_scoped" {
+  name   = "${var.project}-iac-apply-ecs-scoped-policy"
+  role   = aws_iam_role.iac_apply.name
+  policy = data.aws_iam_policy_document.iac_apply_ecs_scoped.json
+}
+
 # ------------------------------------------
 # Custom Policy for Secrets Manager, KMS & Tagging
 # ------------------------------------------
@@ -342,7 +663,8 @@ data "aws_iam_policy_document" "iac_apply_additional_permissions" {
     ]
     resources = ["*"]
   }
-  # KMS Keys Management (في حال استخدام تشفير مخصص للـ S3/RDS/Secrets)
+
+  # KMS Keys Management (في حال استخدام تشفير مخصص للـ S3/RDS/Secrets) 
   statement {
     sid    = "KMSManagement"
     effect = "Allow"
@@ -361,6 +683,22 @@ data "aws_iam_policy_document" "iac_apply_additional_permissions" {
     ]
     resources = ["*"]
   }
+
+  # ECS Task Role PassRole (was provided by IAMFullAccess)
+  statement {
+    sid     = "PassRoleForECSTasks"
+    effect  = "Allow"
+    actions = ["iam:PassRole"]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-*"
+    ]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+
 }
 resource "aws_iam_role_policy" "iac_apply_additional_permissions" {
   name   = "${var.project}-iac-apply-additional-permissions-policy"

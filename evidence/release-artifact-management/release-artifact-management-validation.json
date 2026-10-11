@@ -35,7 +35,7 @@
 "No production-scale reliability claim"
 ],
 "evidenceReferences": {
-"githubActionsRunUrl": "REPLACE_WITH_ACTUAL_RUN_URL",
-"githubActionsRunId": "REPLACE_WITH_ACTUAL_RUN_ID"
+"githubActionsRunUrl": "https://github.com/naseeb-helali/mini-write/actions/runs/37868577185",
+"githubActionsRunId": "37868577185"
 }
 }

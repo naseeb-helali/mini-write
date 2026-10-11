@@ -303,8 +303,9 @@ jobs:
       - plan
 
     if: >
-      (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.action == 'apply')
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' && 
+      github.event.inputs.action == 'apply'
 
     runs-on:
       - self-hosted
