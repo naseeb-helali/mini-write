@@ -4,7 +4,7 @@ module "github_oidc" {
   project      = var.project_name
   project_name = var.project_name
 
-  tfstate_bucket_name = "mini-write-terraform-state54913687"
+  tfstate_bucket_name = "mini-write-terraform-state54913687010100"
 
   plan_subjects = [
     "repo:${var.github_repository}:pull_request",

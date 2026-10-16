@@ -7,7 +7,8 @@ module "elasticache" {
   subnet_ids = module.vpc.private_data_subnet_ids
 
   security_group_ids = [
-    module.security_groups.redis_security_group_id
+    module.security_groups.redis_security_group_id,
+    aws_security_group.kubernetes_redis_access.id
   ]
 
   node_type      = var.redis_node_type

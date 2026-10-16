@@ -13,7 +13,8 @@ module "rds" {
   subnet_ids = module.vpc.private_data_subnet_ids
 
   security_group_ids = [
-    module.security_groups.rds_security_group_id
+    module.security_groups.rds_security_group_id,
+    aws_security_group.kubernetes_rds_access.id
   ]
 
   engine_version = "16"

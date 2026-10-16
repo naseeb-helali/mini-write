@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+
+NODE_NAME="${node_name}"
+
+hostnamectl set-hostname "$${NODE_NAME}"
+
+if ! snap list amazon-ssm-agent >/dev/null 2>&1; then
+  snap install amazon-ssm-agent --classic
+fi
+
+systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service
