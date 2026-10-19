@@ -152,8 +152,8 @@ jobs:
     steps:
       - name: Checkout source revision
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
 
       - name: Download original CI artifact manifest
         uses: actions/download-artifact@v5

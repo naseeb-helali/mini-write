@@ -11,6 +11,6 @@ module "secrets" {
   }
 
   redis_password = var.redis_password
-  jwt_secret = var.jwt_secret
-  db_password = var.db_password
+  jwt_secret     = var.jwt_secret
+  db_password    = var.db_password
 }

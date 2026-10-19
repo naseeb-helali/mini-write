@@ -1,7 +1,7 @@
 module "github_oidc" {
   source = "../../modules/github-oidc"
 
-  project = var.project_name
+  project      = var.project_name
   project_name = var.project_name
 
   tfstate_bucket_name = "mini-write-terraform-state54913687010100"
@@ -34,7 +34,7 @@ module "github_oidc" {
     Component   = "github-oidc"
   }
 
-    # Kubernetes CD permissions
+  # Kubernetes CD permissions
   kubernetes_secret_arns = [
     module.secrets.database_secret_arn,
     module.secrets.redis_secret_arn,

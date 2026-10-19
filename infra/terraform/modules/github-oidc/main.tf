@@ -351,8 +351,8 @@ data "aws_iam_policy_document" "iac_apply_iam_scoped" {
   }
 
   statement {
-    sid    = "IAMPassRoleToECS"
-    effect = "Allow"
+    sid     = "IAMPassRoleToECS"
+    effect  = "Allow"
     actions = ["iam:PassRole"]
     resources = [
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-*"
@@ -380,9 +380,9 @@ data "aws_iam_policy_document" "iac_apply_iam_scoped" {
   }
 
   statement {
-    sid    = "IAMServiceLinkedRoles"
-    effect = "Allow"
-    actions = ["iam:CreateServiceLinkedRole"]
+    sid       = "IAMServiceLinkedRoles"
+    effect    = "Allow"
+    actions   = ["iam:CreateServiceLinkedRole"]
     resources = ["*"]
     condition {
       test     = "StringLike"
@@ -408,9 +408,9 @@ resource "aws_iam_role_policy" "iac_apply_iam_scoped" {
 # ------------------------------------------
 data "aws_iam_policy_document" "iac_apply_rds_scoped" {
   statement {
-    sid    = "RDSRead"
-    effect = "Allow"
-    actions = ["rds:Describe*", "rds:ListTagsForResource"]
+    sid       = "RDSRead"
+    effect    = "Allow"
+    actions   = ["rds:Describe*", "rds:ListTagsForResource"]
     resources = ["*"]
   }
 
@@ -555,9 +555,9 @@ resource "aws_iam_role_policy" "iac_apply_cloudwatch_scoped" {
 # ------------------------------------------
 data "aws_iam_policy_document" "iac_apply_elasticache_scoped" {
   statement {
-    sid    = "ElastiCacheRead"
-    effect = "Allow"
-    actions = ["elasticache:Describe*", "elasticache:ListTagsForResource"]
+    sid       = "ElastiCacheRead"
+    effect    = "Allow"
+    actions   = ["elasticache:Describe*", "elasticache:ListTagsForResource"]
     resources = ["*"]
   }
 
@@ -589,9 +589,9 @@ resource "aws_iam_role_policy" "iac_apply_elasticache_scoped" {
 # ------------------------------------------
 data "aws_iam_policy_document" "iac_apply_ecs_scoped" {
   statement {
-    sid    = "ECSRead"
-    effect = "Allow"
-    actions = ["ecs:Describe*", "ecs:List*"]
+    sid       = "ECSRead"
+    effect    = "Allow"
+    actions   = ["ecs:Describe*", "ecs:List*"]
     resources = ["*"]
   }
 
@@ -666,28 +666,28 @@ data "aws_iam_policy_document" "iac_apply_additional_permissions" {
 
   # KMS Keys Management (في حال استخدام تشفير مخصص للـ S3/RDS/Secrets) 
   statement {
-     sid = "KMSManagement"
-    effect = "Allow" 
-    actions = [ 
-      "kms:CreateKey", 
-      "kms:CreateAlias", 
-      "kms:DescribeKey", 
-      "kms:GetKeyPolicy", 
-      "kms:GetKeyRotationStatus", 
-      "kms:ListResourceTags", 
-      "kms:ScheduleKeyDeletion", 
-      "kms:TagResource", 
-      "kms:UntagResource", 
-      "kms:UpdateAlias", 
-      "kms:UpdateKeyDescription" 
-    ] 
-    resources = ["*"] 
+    sid    = "KMSManagement"
+    effect = "Allow"
+    actions = [
+      "kms:CreateKey",
+      "kms:CreateAlias",
+      "kms:DescribeKey",
+      "kms:GetKeyPolicy",
+      "kms:GetKeyRotationStatus",
+      "kms:ListResourceTags",
+      "kms:ScheduleKeyDeletion",
+      "kms:TagResource",
+      "kms:UntagResource",
+      "kms:UpdateAlias",
+      "kms:UpdateKeyDescription"
+    ]
+    resources = ["*"]
   }
 
   # ECS Task Role PassRole (was provided by IAMFullAccess)
   statement {
-    sid    = "PassRoleForECSTasks"
-    effect = "Allow"
+    sid     = "PassRoleForECSTasks"
+    effect  = "Allow"
     actions = ["iam:PassRole"]
     resources = [
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-*"
@@ -721,7 +721,7 @@ data "aws_iam_policy_document" "ci_runner_assume_role" {
     ]
 
     principals {
-      type        = "Federated"
+      type = "Federated"
       identifiers = [
         aws_iam_openid_connect_provider.github.arn
       ]
@@ -730,7 +730,7 @@ data "aws_iam_policy_document" "ci_runner_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
-      values   = [
+      values = [
         "sts.amazonaws.com"
       ]
     }
@@ -816,7 +816,7 @@ data "aws_iam_policy_document" "cd_runner_assume_role" {
     ]
 
     principals {
-      type        = "Federated"
+      type = "Federated"
       identifiers = [
         aws_iam_openid_connect_provider.github.arn
       ]
@@ -825,7 +825,7 @@ data "aws_iam_policy_document" "cd_runner_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
-      values   = [
+      values = [
         "sts.amazonaws.com"
       ]
     }
@@ -972,7 +972,7 @@ data "aws_iam_policy_document" "cd_runner_policy" {
     ]
   }
 
-    # ------------------------------------------
+  # ------------------------------------------
   # Kubernetes CD - Application Secrets
   # ------------------------------------------
   statement {
