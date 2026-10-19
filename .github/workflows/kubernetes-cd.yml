@@ -212,8 +212,8 @@ jobs:
     steps:
       - name: Checkout release source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
 
       - name: Validate deployment target and Staging Kubernetes configuration
         shell: bash
@@ -493,8 +493,8 @@ jobs:
     steps:
       - name: Checkout release source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
 
       - name: Validate deployment target and Production Kubernetes configuration
         shell: bash
@@ -695,8 +695,8 @@ jobs:
     steps:
       - name: Checkout failed release source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
 
       - name: Validate rollback target and Production Kubernetes configuration
         shell: bash
