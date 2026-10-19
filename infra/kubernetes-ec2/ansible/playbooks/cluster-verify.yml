@@ -1,0 +1,113 @@
+---
+- name: Verify Kubernetes cluster and networking state
+  hosts: control_plane
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Read cluster nodes
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/etc/kubernetes/admin.conf
+          - get
+          - nodes
+          - -o
+          - wide
+      register: cluster_nodes
+      changed_when: false
+
+    - name: Display node status
+      ansible.builtin.debug:
+        var: cluster_nodes.stdout_lines
+
+    - name: Assert all three approved private node IPs are registered
+      ansible.builtin.shell: |
+        set -euo pipefail
+        addresses="$(kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}')"
+        for ip in 10.20.10.206 10.20.10.230 10.20.11.245; do
+          printf '%s\n' "$addresses" | grep -Fxq "$ip"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify Calico and kube-proxy DaemonSets
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf -n calico-system rollout status daemonset/calico-node --timeout=30s
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system rollout status daemonset/kube-proxy --timeout=30s
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify CoreDNS deployment
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/etc/kubernetes/admin.conf
+          - rollout
+          - status
+          - deployment/coredns
+          - -n
+          - kube-system
+          - --timeout=60s
+      changed_when: false
+
+    - name: Display Calico and system pods
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/etc/kubernetes/admin.conf
+          - get
+          - pods
+          - -n
+          - kube-system
+          - -o
+          - wide
+      register: system_pods
+      changed_when: false
+
+    - name: Show system pod state
+      ansible.builtin.debug:
+        var: system_pods.stdout_lines
+
+
+    - name: Verify Calico IPv4 pool CIDR and VXLAN settings
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/etc/kubernetes/admin.conf
+          - get
+          - ippools.projectcalico.org
+          - default-ipv4-ippool
+          - -o
+          - jsonpath={.spec.cidr}{" "}{.spec.vxlanMode}{" "}{.spec.ipipMode}{" "}{.spec.natOutgoing}
+      register: calico_pool
+      changed_when: false
+
+    - name: Assert approved Calico pool settings
+      ansible.builtin.assert:
+        that:
+          - calico_pool.stdout == "172.20.0.0/16 Always Never true"
+        fail_msg: "Calico IPPool does not match the approved VXLAN design: {{ calico_pool.stdout }}"
+
+    - name: Verify CoreDNS Service ClusterIP
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/etc/kubernetes/admin.conf
+          - get
+          - service
+          - kube-dns
+          - -n
+          - kube-system
+          - -o
+          - jsonpath={.spec.clusterIP}
+      register: cluster_dns_ip
+      changed_when: false
+
+    - name: Assert approved Cluster DNS address
+      ansible.builtin.assert:
+        that:
+          - cluster_dns_ip.stdout == "172.21.0.10"
+        fail_msg: "Unexpected CoreDNS ClusterIP: {{ cluster_dns_ip.stdout }}"

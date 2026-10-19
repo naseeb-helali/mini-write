@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mini-write-staging-runtime
+  namespace: mini-write-staging
+  labels:
+    app.kubernetes.io/part-of: mini-write
+    app.kubernetes.io/component: runtime-configuration
+data:
+  POSTGRES_HOST: "mini-write-staging-postgres.cal0q46wccqr.us-east-1.rds.amazonaws.com"
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: "miniwrite_admin"
+  POSTGRES_DB: "miniwrite_db"
+  REDIS_HOST: "mini-write-staging-redis.newmun.ng.0001.use1.cache.amazonaws.com"
+  REDIS_PORT: "6379"
+  NODE_ENV: "production"
+  STORAGE_PROVIDER: "s3"
+  AWS_REGION: "us-east-1"
+  STORAGE_INPUT_BUCKET: "mini-write-staging-input"
+  STORAGE_OUTPUT_BUCKET: "mini-write-staging-processed"

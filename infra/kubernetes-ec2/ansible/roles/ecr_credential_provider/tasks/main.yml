@@ -1,0 +1,131 @@
+---
+- name: Inspect ECR credential provider binary on the Ansible controller
+  ansible.builtin.stat:
+    path: "{{ ecr_credential_provider_binary_src }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: ecr_provider_controller_binary
+
+- name: Validate controller-side ECR credential provider artifact
+  ansible.builtin.assert:
+    that:
+      - ecr_provider_controller_binary.stat.exists
+      - ecr_provider_controller_binary.stat.isreg
+      - ecr_provider_controller_binary.stat.checksum == ecr_credential_provider_binary_sha256
+    fail_msg: >-
+      The controller-side ECR credential provider binary is missing or its
+      SHA256 does not match the pinned v1.35.2 artifact. No node changes should
+      be made until the source artifact is verified.
+  run_once: true
+
+- name: Verify kubelet supports exec image credential provider flags
+  ansible.builtin.shell: |
+    help_output="$(kubelet --help 2>&1)"
+    printf '%s\n' "$help_output" | grep -q -- '--image-credential-provider-bin-dir' && \
+      printf '%s\n' "$help_output" | grep -q -- '--image-credential-provider-config'
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Create ECR credential provider binary directory
+  ansible.builtin.file:
+    path: "{{ ecr_credential_provider_bin_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install ECR credential provider executable
+  ansible.builtin.copy:
+    src: "{{ ecr_credential_provider_binary_src }}"
+    dest: "{{ ecr_credential_provider_bin_dir }}/{{ ecr_credential_provider_name }}"
+    owner: root
+    group: root
+    mode: "0755"
+  register: ecr_provider_binary_copy
+
+- name: Verify installed ECR credential provider binary checksum
+  ansible.builtin.stat:
+    path: "{{ ecr_credential_provider_bin_dir }}/{{ ecr_credential_provider_name }}"
+    checksum_algorithm: sha256
+  register: ecr_provider_remote_binary
+
+- name: Assert installed ECR credential provider checksum
+  ansible.builtin.assert:
+    that:
+      - ecr_provider_remote_binary.stat.exists
+      - ecr_provider_remote_binary.stat.checksum == ecr_credential_provider_binary_sha256
+
+- name: Verify installed ECR credential provider version
+  ansible.builtin.command:
+    argv:
+      - "{{ ecr_credential_provider_bin_dir }}/{{ ecr_credential_provider_name }}"
+      - --version
+  changed_when: false
+  register: ecr_provider_version_output
+
+- name: Assert expected ECR credential provider version
+  ansible.builtin.assert:
+    that:
+      - ecr_credential_provider_version in ecr_provider_version_output.stdout
+
+- name: Ensure Kubernetes configuration directory exists
+  ansible.builtin.file:
+    path: /etc/kubernetes
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install kubelet ECR credential provider configuration
+  ansible.builtin.template:
+    src: credential-provider-config.yaml.j2
+    dest: "{{ ecr_credential_provider_config_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kubelet when already active
+
+- name: Read current kubelet environment file
+  ansible.builtin.slurp:
+    src: /etc/default/kubelet
+  register: kubelet_default_environment
+
+- name: Validate that KUBELET_EXTRA_ARGS is blank or already managed by this role
+  ansible.builtin.assert:
+    that:
+      - >-
+        (kubelet_default_environment.content | b64decode)
+        is regex('(?m)^KUBELET_EXTRA_ARGS=\s*$')
+        or
+        (kubelet_default_environment.content | b64decode)
+        is regex('(?m)^KUBELET_EXTRA_ARGS="--image-credential-provider-bin-dir=/opt/kubernetes/bin --image-credential-provider-config=/etc/kubernetes/credential-provider-config\.yaml"\s*$')
+    fail_msg: >-
+      /etc/default/kubelet contains KUBELET_EXTRA_ARGS values not owned by this
+      role. Refusing to overwrite them. Review and merge the existing flags
+      explicitly before rerunning.
+
+- name: Configure kubelet credential provider flags
+  ansible.builtin.lineinfile:
+    path: /etc/default/kubelet
+    regexp: '^KUBELET_EXTRA_ARGS='
+    line: 'KUBELET_EXTRA_ARGS="{{ ecr_credential_provider_kubelet_extra_args | trim }}"'
+    create: false
+    backup: true
+  notify: Restart kubelet when already active
+
+- name: Check whether kubelet is currently active
+  ansible.builtin.command: systemctl is-active kubelet
+  changed_when: false
+  failed_when: false
+  register: kubelet_active_before_changes
+
+- name: Report staged configuration when kubelet is not active yet
+  ansible.builtin.debug:
+    msg: >-
+      Kubelet is not active on {{ inventory_hostname }}. Credential-provider
+      files and flags are staged; no service restart is necessary before
+      kubeadm initialization/join.
+  when: kubelet_active_before_changes.stdout != 'active'

@@ -63,6 +63,7 @@ variable "ubuntu_ami_id" {
   type        = string
   default     = null
   nullable    = true
+  sensitive   = true
 }
 
 variable "ubuntu_ami_ssm_parameter" {

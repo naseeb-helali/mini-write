@@ -1,0 +1,214 @@
+---
+- name: Initialize the Kubernetes control plane
+  hosts: control_plane
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Check whether this control plane was already initialized
+      ansible.builtin.stat:
+        path: /etc/kubernetes/admin.conf
+      register: control_plane_admin_conf
+
+    - name: Initialize Kubernetes control plane
+      ansible.builtin.command:
+        argv:
+          - kubeadm
+          - init
+          - --config
+          - /etc/kubernetes/kubeadm-init.yaml
+          - --skip-token-print
+      when: not control_plane_admin_conf.stat.exists
+      register: kubeadm_init_result
+      no_log: false
+
+    - name: Wait for Kubernetes API server readiness
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/etc/kubernetes/admin.conf
+          - get
+          - --raw=/readyz
+      register: api_ready
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: api_ready.rc == 0 and api_ready.stdout == "ok"
+
+- name: Install pinned Calico VXLAN networking with Tigera Operator
+  hosts: control_plane
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Create Kubernetes artifact directory
+      ansible.builtin.file:
+        path: /opt/kubernetes/manifests
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Download Calico v3.33.0 projectcalico CRDs for Kubernetes 1.35
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/v3_projectcalico_org-v1beta1.yaml
+        dest: /opt/kubernetes/manifests/calico-v3.33.0-projectcalico-crds.yaml
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+
+    - name: Download pinned Tigera Operator v3.33.0 manifest
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/tigera-operator.yaml
+        dest: /opt/kubernetes/manifests/tigera-operator-v3.33.0.yaml
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+
+    - name: Copy approved Calico Installation custom resource
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../kubernetes/networking/calico-installation.yaml"
+        dest: /opt/kubernetes/manifests/calico-installation.yaml
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Apply Calico projectcalico CRDs
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/etc/kubernetes/admin.conf
+          - apply
+          - --server-side
+          - --force-conflicts
+          - -f
+          - /opt/kubernetes/manifests/calico-v3.33.0-projectcalico-crds.yaml
+      register: calico_crds_apply
+      changed_when: "'configured' in calico_crds_apply.stdout or 'created' in calico_crds_apply.stdout"
+      failed_when:
+        - calico_crds_apply.rc != 0
+        - "'no matches for kind' not in calico_crds_apply.stderr"
+
+    - name: Apply Tigera Operator
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/etc/kubernetes/admin.conf
+          - apply
+          - -f
+          - /opt/kubernetes/manifests/tigera-operator-v3.33.0.yaml
+      register: tigera_operator_apply
+      changed_when: "'configured' in tigera_operator_apply.stdout or 'created' in tigera_operator_apply.stdout"
+
+    - name: Wait for Tigera Operator deployment
+      ansible.builtin.shell: |
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+          get deployment/tigera-operator -n tigera-operator \
+          -o jsonpath='{.status.availableReplicas}'
+      register: tigera_available
+      changed_when: false
+      retries: 60
+      delay: 10
+      until: (tigera_available.stdout | trim | default('0')) | int >= 1
+
+    - name: Apply minimal Calico Installation configuration
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/etc/kubernetes/admin.conf
+          - apply
+          - -f
+          - /opt/kubernetes/manifests/calico-installation.yaml
+      register: calico_installation_apply
+      changed_when: "'configured' in calico_installation_apply.stdout or 'created' in calico_installation_apply.stdout"
+
+    - name: Wait for Calico node agent on control plane
+      ansible.builtin.shell: |
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+          get pods -n calico-system -l k8s-app=calico-node \
+          -o jsonpath='{.items[*].status.phase}'
+      register: calico_node_phase
+      changed_when: false
+      retries: 120
+      delay: 10
+      until: "'Running' in calico_node_phase.stdout"
+
+    - name: Wait for Calico controllers
+      ansible.builtin.shell: |
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+          get deployment/calico-kube-controllers -n calico-system \
+          -o jsonpath='{.status.availableReplicas}'
+      register: calico_controllers_available
+      changed_when: false
+      retries: 120
+      delay: 10
+      until: (calico_controllers_available.stdout | trim | default('0')) | int >= 1
+
+- name: Generate a short-lived worker join command
+  hosts: control_plane
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Create worker join command with two-hour token TTL
+      ansible.builtin.command:
+        argv:
+          - kubeadm
+          - token
+          - create
+          - --ttl
+          - 2h
+          - --print-join-command
+      register: worker_join_command_result
+      changed_when: true
+      no_log: true
+
+    - name: Store join command for this Ansible run only
+      ansible.builtin.set_fact:
+        kubeadm_worker_join_command: "{{ worker_join_command_result.stdout }} --cri-socket unix:///run/containerd/containerd.sock"
+      no_log: true
+
+- name: Join worker nodes to the Kubernetes cluster
+  hosts: workers
+  gather_facts: false
+  become: true
+  serial: 1
+  tasks:
+    - name: Check whether this worker already has kubeadm join state
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: worker_kubelet_conf
+
+    - name: Join worker to control plane
+      ansible.builtin.shell: "{{ hostvars[groups['control_plane'][0]].kubeadm_worker_join_command }}"
+      args:
+        executable: /bin/bash
+      when: not worker_kubelet_conf.stat.exists
+      no_log: false
+      register: worker_join_result
+
+- name: Wait for all Kubernetes nodes to become Ready
+  hosts: control_plane
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Wait for all nodes to report Ready
+      ansible.builtin.shell: |
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+          get nodes -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}'
+      register: nodes_ready
+      changed_when: false
+      retries: 120
+      delay: 10
+      until: "'False' not in nodes_ready.stdout and 'True' in nodes_ready.stdout"
+
+    - name: Wait for Calico DaemonSet on all nodes
+      ansible.builtin.shell: |
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+          get daemonset/calico-node -n calico-system \
+          -o jsonpath='{.status.numberReady}/{.status.desiredNumberScheduled}'
+      register: calico_daemonset_ready
+      changed_when: false
+      retries: 120
+      delay: 10
+      until: calico_daemonset_ready.stdout.split('/')[0] == calico_daemonset_ready.stdout.split('/')[1]
+

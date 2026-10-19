@@ -1,0 +1,25 @@
+# AWS SSM connection
+ansible_connection: amazon.aws.aws_ssm
+ansible_aws_ssm_region: us-east-1
+ansible_aws_ssm_bucket_name: mini-write-staging-k8s-ansible-496494570164-us-east-1
+ansible_remote_tmp: /tmp/.ansible/tmp
+ansible_become: true
+
+# Stage 1 Bootstrap role ARN is recorded here for operator reference.
+# The connection plugin uses the active AWS credential chain. It does not
+# automatically assume this role.
+kubernetes_bootstrap_role_arn: arn:aws:iam::496494570164:role/mini-write-staging-k8s-bootstrap
+
+# Kubernetes package repository/minor line.
+kubernetes_minor_version: v1.35
+kubernetes_apt_version_regex: "1.35.*"
+
+# Ubuntu package names
+containerd_package: containerd
+kubernetes_packages:
+  - kubelet
+  - kubeadm
+  - kubectl
+
+# Do not install/initialize a cluster in Stage 2.
+kubernetes_cluster_initialization_enabled: false

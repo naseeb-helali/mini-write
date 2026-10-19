@@ -10,13 +10,13 @@ variable "project_name" {
 variable "aws_region" {
   description = "Name of the S3 bucket storing Terraform state."
   type        = string
-  default     = "us-east-1"
+  default = "us-east-1"
 }
 
 variable "environment" {
   description = "Name of the S3 bucket storing Terraform state."
   type        = string
-  default     = "staging"
+  default = "staging"
 }
 
 variable "plan_subjects" {
@@ -60,4 +60,24 @@ variable "cd_subjects" {
   description = "GitHub OIDC subjects allowed to assume the CD runner role (for ECR pull + ECS deploy)."
   type        = list(string)
   default     = []
+}
+
+variable "kubernetes_secret_arns" {
+  description = "Exact Secrets Manager ARNs readable by the Kubernetes CD deployment."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.kubernetes_secret_arns) == 3
+    error_message = "Exactly three application secret ARNs must be provided."
+  }
+}
+
+variable "kubernetes_control_plane_instance_id" {
+  description = "EC2 instance ID of the Kubernetes control plane used for SSM port forwarding."
+  type        = string
+
+  validation {
+    condition     = can(regex("^i-[0-9a-f]+$", var.kubernetes_control_plane_instance_id))
+    error_message = "A valid EC2 instance ID must be provided."
+  }
 }

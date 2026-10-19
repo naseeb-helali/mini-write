@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mini-write-staging
+  labels:
+    app.kubernetes.io/part-of: mini-write
+    environment: staging

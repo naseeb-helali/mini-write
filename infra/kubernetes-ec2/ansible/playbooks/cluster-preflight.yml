@@ -1,0 +1,144 @@
+---
+- name: Validate all Kubernetes EC2 nodes before cluster initialization
+  hosts: kubernetes
+  gather_facts: true
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Assert expected Ubuntu platform and architecture
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version('24.04', '>=')
+          - ansible_architecture == "x86_64"
+        fail_msg: "Unexpected OS or architecture on {{ inventory_hostname }}."
+
+    - name: Assert node private address matches the approved inventory
+      ansible.builtin.assert:
+        that:
+          - ansible_default_ipv4.address == ansible_host
+        fail_msg: >-
+          The default IPv4 address on {{ inventory_hostname }} does not
+          match the approved private address {{ ansible_host }}.
+
+    - name: Verify containerd is active and enabled
+      ansible.builtin.command: systemctl is-active containerd
+      changed_when: false
+      register: containerd_state
+      failed_when: containerd_state.stdout != "active"
+
+    - name: Verify containerd systemd cgroup setting
+      ansible.builtin.command: grep -Eq '^\s*SystemdCgroup = true\s*$' /etc/containerd/config.toml
+      changed_when: false
+
+    - name: Verify exact Kubernetes package versions
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubeadm version -o short | grep -Fx 'v1.35.9'
+        kubelet --version | grep -F 'v1.35.9'
+        kubectl version --client -o yaml | grep -F 'gitVersion: v1.35.9'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify no active swap
+      ansible.builtin.shell: test -z "$(swapon --noheadings --show)"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify required kernel modules are loaded
+      ansible.builtin.shell: |
+        set -euo pipefail
+        lsmod | grep -q '^overlay '
+        lsmod | grep -q '^br_netfilter '
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify required sysctl values
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test "$(sysctl -n net.bridge.bridge-nf-call-iptables)" = "1"
+        test "$(sysctl -n net.ipv4.ip_forward)" = "1"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify ECR credential provider checksum
+      ansible.builtin.stat:
+        path: /opt/kubernetes/bin/ecr-credential-provider
+        checksum_algorithm: sha256
+      register: ecr_provider_stat
+
+    - name: Assert ECR credential provider is staged correctly
+      ansible.builtin.assert:
+        that:
+          - ecr_provider_stat.stat.exists
+          - ecr_provider_stat.stat.checksum == '5a1890276d5a81a221fd77edbf1c8479e17101d11edce96e43723854eea51b90'
+
+    - name: Verify ECR credential provider kubelet configuration exists
+      ansible.builtin.stat:
+        path: /etc/kubernetes/credential-provider-config.yaml
+      register: ecr_config_stat
+
+    - name: Assert ECR credential provider configuration is present
+      ansible.builtin.assert:
+        that:
+          - ecr_config_stat.stat.exists
+
+    - name: Verify kubelet extra args include ECR credential provider flags
+      ansible.builtin.command: grep -Fq -- '--image-credential-provider-config=/etc/kubernetes/credential-provider-config.yaml' /etc/default/kubelet
+      changed_when: false
+
+    - name: Verify kubelet extra args include provider binary directory
+      ansible.builtin.command: grep -Fq -- '--image-credential-provider-bin-dir=/opt/kubernetes/bin' /etc/default/kubelet
+      changed_when: false
+
+    - name: Verify kubelet service is enabled for kubeadm bootstrap
+      ansible.builtin.command: systemctl is-enabled kubelet
+      changed_when: false
+      register: kubelet_enabled
+      failed_when: kubelet_enabled.stdout != "enabled"
+
+    - name: Verify ECR credential provider config targets the approved registry
+      ansible.builtin.command: grep -Fq '496494570164.dkr.ecr.us-east-1.amazonaws.com' /etc/kubernetes/credential-provider-config.yaml
+      changed_when: false
+
+    - name: Report node preflight success
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} passed Kubernetes cluster preflight."
+
+- name: Validate kubeadm configuration on the control plane
+  hosts: control_plane
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Ensure patches directory exists
+      ansible.builtin.file:
+        path: /etc/kubernetes/patches
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Copy kube-apiserver patch
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../kubernetes/bootstrap/patches/kube-apiserver+strategic.yaml"
+        dest: /etc/kubernetes/patches/kube-apiserver+strategic.yaml
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Copy reviewed kubeadm init configuration
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../kubernetes/bootstrap/kubeadm-init.yaml"
+        dest: /etc/kubernetes/kubeadm-init.yaml
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Validate kubeadm configuration without initializing the cluster
+      ansible.builtin.command: kubeadm config validate --config /etc/kubernetes/kubeadm-init.yaml
+      changed_when: false

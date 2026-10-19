@@ -1,0 +1,51 @@
+---
+- name: Ensure apt keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Kubernetes package repository signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_minor_version }}/deb/Release.key"
+    dest: /tmp/kubernetes-apt-key.asc
+    owner: root
+    group: root
+    mode: "0644"
+    force: true
+
+- name: Dearmor Kubernetes package repository key
+  ansible.builtin.command:
+    cmd: gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes-apt-key.asc
+  changed_when: true
+
+- name: Configure Kubernetes apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg]
+      https://pkgs.k8s.io/core:/stable:/{{ kubernetes_minor_version }}/deb/ /
+    filename: kubernetes
+    state: present
+    update_cache: true
+
+- name: Install Kubernetes node packages
+  ansible.builtin.apt:
+    name: "{{ item }}={{ kubernetes_apt_version_regex }}"
+    state: present
+    allow_downgrade: true
+    update_cache: true
+  loop: "{{ kubernetes_packages }}"
+
+- name: Hold Kubernetes package versions
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ kubernetes_packages }}"
+
+- name: Enable kubelet (it may restart until kubeadm configures the node)
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true
+    daemon_reload: true

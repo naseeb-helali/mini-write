@@ -1,0 +1,49 @@
+{
+"schemaVersion": "1.0",
+"project": "mini-write",
+"gate": "infrastructure-automation",
+"status": "closed",
+"validation": {
+"terraformPlanAndApply": {
+"status": "passed",
+"scope": [
+"staging infrastructure changes applied through GitHub Actions",
+"Terraform plan execution",
+"post-apply infrastructure reconciliation"
+],
+"observedOutcome": "GitHub Actions plan and apply succeeded after IAM policy changes; the subsequent Terraform plan reported no changes."
+},
+"applyExecutionControl": {
+"status": "passed",
+"executionMode": "workflow_dispatch",
+"observedOutcome": "Apply does not execute automatically on push; it is invoked through workflow_dispatch.",
+"limitation": "This does not establish a mandatory human approval gate."
+},
+"iamManagedPolicyRemoval": {
+"status": "passed",
+"role": "mini-write-github-iac-apply",
+"observedOutcome": "No attached AWS managed policies were returned by list-attached-role-policies.",
+"inlinePolicyCount": 10,
+"verificationCommands": [
+"aws iam list-attached-role-policies",
+"aws iam list-role-policies"
+],
+"limitation": "Successful workflow execution does not prove that every inline permission satisfies least privilege."
+}
+},
+"metrics": {
+"status": "not-applicable",
+"reason": "Correctness, controlled infrastructure changes, post-apply reconciliation, and IAM policy configuration are the primary validation objectives; no artificial performance metric is needed."
+},
+"limitations": [
+"Validation is limited to Staging; Production infrastructure provisioning and application were not demonstrated.",
+"No claim of exhaustive least-privilege compliance for the Terraform apply role.",
+"No claim of mandatory human approval for apply execution.",
+"No claim of state recovery or disaster-recovery validation.",
+"No claim of production-scale reliability or multi-region resilience."
+],
+"evidenceReferences": {
+"githubActionsApplyRunUrl": "https://github.com/naseeb-helali/mini-write/actions/runs/38170140077",
+"githubActionsApplyRunId": "38170140077"
+}
+}

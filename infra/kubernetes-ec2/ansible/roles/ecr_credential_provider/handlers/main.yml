@@ -1,0 +1,6 @@
+---
+- name: Restart kubelet when already active
+  ansible.builtin.service:
+    name: kubelet
+    state: restarted
+  when: kubelet_active_before_changes.stdout | default('') == 'active'

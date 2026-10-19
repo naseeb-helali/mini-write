@@ -1,0 +1,2 @@
+ansible_aws_ssm_bucket_name: mini-write-staging-k8s-ansible-496494570164-us-east-1
+ansible_aws_ssm_region: us-east-1

@@ -1,0 +1,37 @@
+---
+- name: Bootstrap self-managed Kubernetes EC2 nodes
+  hosts: kubernetes
+  gather_facts: true
+  become: true
+  serial: 1
+  connection: amazon.aws.aws_ssm
+
+  roles:
+    - role: os_prerequisites
+    - role: containerd
+    - role: kubernetes_packages
+
+  post_tasks:
+    - name: Verify containerd is active
+      ansible.builtin.command: systemctl is-active containerd
+      changed_when: false
+      register: containerd_active
+      failed_when: containerd_active.stdout != "active"
+
+    - name: Verify kubeadm is installed
+      ansible.builtin.command: kubeadm version
+      changed_when: false
+
+    - name: Verify kubelet is installed
+      ansible.builtin.command: kubelet --version
+      changed_when: false
+
+    - name: Verify kubectl is installed
+      ansible.builtin.command: kubectl version --client
+      changed_when: false
+
+    - name: Report bootstrap completion without cluster initialization
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} is bootstrapped. No Kubernetes cluster
+          initialization or node join has been performed.

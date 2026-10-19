@@ -11,25 +11,25 @@ locals {
 
   nodes = {
     control_plane = {
-      name             = "${local.name_prefix}-control-plane"
-      subnet_id        = var.private_app_subnet_ids[0]
-      instance_type    = var.control_plane_instance_type
-      root_volume_size = var.control_plane_root_volume_size
-      kubernetes_role  = "control-plane"
+      name              = "${local.name_prefix}-control-plane"
+      subnet_id         = var.private_app_subnet_ids[0]
+      instance_type     = var.control_plane_instance_type
+      root_volume_size  = var.control_plane_root_volume_size
+      kubernetes_role   = "control-plane"
     }
     worker_01 = {
-      name             = "${local.name_prefix}-worker-01"
-      subnet_id        = var.private_app_subnet_ids[0]
-      instance_type    = var.worker_instance_type
-      root_volume_size = var.worker_root_volume_size
-      kubernetes_role  = "worker"
+      name              = "${local.name_prefix}-worker-01"
+      subnet_id         = var.private_app_subnet_ids[0]
+      instance_type     = var.worker_instance_type
+      root_volume_size  = var.worker_root_volume_size
+      kubernetes_role   = "worker"
     }
     worker_02 = {
-      name             = "${local.name_prefix}-worker-02"
-      subnet_id        = var.private_app_subnet_ids[1]
-      instance_type    = var.worker_instance_type
-      root_volume_size = var.worker_root_volume_size
-      kubernetes_role  = "worker"
+      name              = "${local.name_prefix}-worker-02"
+      subnet_id         = var.private_app_subnet_ids[1]
+      instance_type     = var.worker_instance_type
+      root_volume_size  = var.worker_root_volume_size
+      kubernetes_role   = "worker"
     }
   }
 }
@@ -290,11 +290,11 @@ resource "aws_instance" "kubernetes_nodes" {
   }
 
   tags = merge(var.tags, {
-    Name           = each.value.name
-    KubernetesRole = each.value.kubernetes_role
-    KubernetesNode = each.key
-    Component      = "kubernetes-compute"
-    SSMManaged     = "true"
+    Name             = each.value.name
+    KubernetesRole   = each.value.kubernetes_role
+    KubernetesNode   = each.key
+    Component        = "kubernetes-compute"
+    SSMManaged       = "true"
   })
 
   depends_on = [

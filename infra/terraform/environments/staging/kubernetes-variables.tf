@@ -1,8 +1,9 @@
 variable "k8s_ubuntu_ami_id" {
-  description = "Optional pinned Ubuntu 24.04 amd64 AMI ID. When null, the Canonical public SSM parameter is resolved."
+  description = "Optional pinned Ubuntu 24.04 amd64 AMI ID."
   type        = string
   default     = null
   nullable    = true
+  sensitive   = true
 }
 
 variable "k8s_ubuntu_ami_ssm_parameter" {

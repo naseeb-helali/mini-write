@@ -1,0 +1,31 @@
+---
+- name: Verify SSM access and target operating systems
+  hosts: kubernetes
+  gather_facts: true
+  become: false
+  connection: amazon.aws.aws_ssm
+
+  tasks:
+    - name: Assert expected Ubuntu family
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_major_version == "24"
+        fail_msg: >-
+          Stage 2 is designed for Ubuntu 24.04. Found
+          {{ ansible_distribution }} {{ ansible_distribution_version }}.
+
+    - name: Display target identity
+      ansible.builtin.debug:
+        msg:
+          - "Inventory host: {{ inventory_hostname }}"
+          - "Instance ID: {{ ansible_aws_ssm_instance_id }}"
+          - "Private address: {{ ansible_host }}"
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Architecture: {{ ansible_architecture }}"
+
+    - name: Assert amd64 architecture
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture in ["x86_64", "amd64"]
+        fail_msg: "The Stage 1 nodes are expected to use amd64."
