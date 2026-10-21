@@ -58,6 +58,12 @@ env:
   K8S_MANIFEST_DIR: infra/kubernetes-ec2/manifests/workloads/staging
   K8S_ROLLOUT_TIMEOUT: 300s
 
+  # Existing, narrowly scoped AWS Secrets Manager resources. These identifiers
+  # are not secret values; the CD role reads SecretString at runtime.
+  K8S_DATABASE_SECRET_ARN: arn:aws:secretsmanager:us-east-1:496494570164:secret:mini-write-staging/database-nl8beV
+  K8S_REDIS_SECRET_ARN: arn:aws:secretsmanager:us-east-1:496494570164:secret:mini-write-staging/redis-lIfx33
+  K8S_JWT_SECRET_ARN: arn:aws:secretsmanager:us-east-1:496494570164:secret:mini-write-staging/jwt-KSUqf8
+
 jobs:
   # ===========================================================================
   # Resolve Artifact
@@ -238,6 +244,14 @@ jobs:
         shell: bash
         run: ./ci/kubernetes/connection/ssm-tunnel.sh start
 
+      - name: Validate Kubernetes Secret synchronization access
+        shell: bash
+        run: ./ci/kubernetes/secrets/validate.sh
+
+      - name: Synchronize application Secrets from AWS Secrets Manager
+        shell: bash
+        run: ./ci/kubernetes/secrets/sync.sh
+
       - name: Download original CI artifact manifest
         uses: actions/download-artifact@v5
         with:
@@ -383,8 +397,8 @@ jobs:
     steps:
       - name: Checkout release source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
 
       - name: Resolve successful Kubernetes Staging CD run
         id: staging
@@ -563,6 +577,14 @@ jobs:
       - name: Start SSM Kubernetes API tunnel
         shell: bash
         run: ./ci/kubernetes/connection/ssm-tunnel.sh start
+
+      - name: Validate Kubernetes Secret synchronization access
+        shell: bash
+        run: ./ci/kubernetes/secrets/validate.sh
+
+      - name: Synchronize application Secrets from AWS Secrets Manager
+        shell: bash
+        run: ./ci/kubernetes/secrets/sync.sh
 
       - name: Create approved Production deployment request
         shell: bash
@@ -747,6 +769,14 @@ jobs:
       - name: Start SSM Kubernetes API tunnel
         shell: bash
         run: ./ci/kubernetes/connection/ssm-tunnel.sh start
+
+      - name: Validate Kubernetes Secret synchronization access
+        shell: bash
+        run: ./ci/kubernetes/secrets/validate.sh
+
+      - name: Synchronize application Secrets from AWS Secrets Manager
+        shell: bash
+        run: ./ci/kubernetes/secrets/sync.sh
 
       - name: Start rollback timer
         id: rollback-timer
