@@ -1,6 +1,13 @@
 name: Mini-Write Kubernetes CD
 
+
+# ============================================================================
+# Triggers
+# ============================================================================
+
 on:
+
+  # Successful CI completion on main
   workflow_run:
     workflows:
       - Mini-Write CI
@@ -9,12 +16,15 @@ on:
     branches:
       - main
 
+  # Release tag
   push:
     tags:
       - "v*"
 
+  # Manual dispatch
   workflow_dispatch:
     inputs:
+
       environment:
         description: "Deployment environment"
         required: true
@@ -28,17 +38,33 @@ on:
         required: true
         type: string
 
+
+# ============================================================================
+# Concurrency
+#
 # Staging, Production and Rollback target the same namespace and Deployments.
 # Keep the entire release transaction serialized so another run cannot mutate
 # the shared workloads between a failed Production release and its rollback.
+# ============================================================================
+
 concurrency:
   group: mini-write-kubernetes-shared-deployment
   cancel-in-progress: false
+
+
+# ============================================================================
+# Permissions
+# ============================================================================
 
 permissions:
   contents: read
   actions: read
   id-token: write
+
+
+# ============================================================================
+# Workflow-level environment
+# ============================================================================
 
 env:
   CI_WORKFLOW: ci.yml
@@ -64,9 +90,14 @@ env:
   K8S_REDIS_SECRET_ARN: arn:aws:secretsmanager:us-east-1:496494570164:secret:mini-write-staging/redis-lIfx33
   K8S_JWT_SECRET_ARN: arn:aws:secretsmanager:us-east-1:496494570164:secret:mini-write-staging/jwt-KSUqf8
 
+
+# ============================================================================
+# Jobs
+# ============================================================================
+
 jobs:
 
-  # ============================================================================
+  # ==========================================================================
   # Resolve Artifact
   #
   # Resolves an already-produced CI artifact.
@@ -76,7 +107,7 @@ jobs:
   # - No publish.
   # - No artifact creation.
   # - No environment mutation.
-  # ============================================================================
+  # ==========================================================================
 
   resolve-artifact:
     name: Resolve Release Artifact
@@ -167,6 +198,7 @@ jobs:
             core.info(`Expected artifact: ${expectedArtifact}`);
 
             for (let page = 1; page <= 10; page++) {
+
               const response =
                 await github.rest.actions.listWorkflowRuns({
                   owner,
@@ -188,6 +220,7 @@ jobs:
                 );
 
               for (const run of runs) {
+
                 const artifacts =
                   await github.rest.actions.listWorkflowRunArtifacts({
                     owner,
@@ -222,12 +255,12 @@ jobs:
             );
 
 
-  # ============================================================================
+  # ==========================================================================
   # Fetch + Validate Artifact
   #
   # Preserves the original manifest contract and additionally constrains
   # repository identities to the ECR repositories used by this EC2 cluster.
-  # ============================================================================
+  # ==========================================================================
 
   validate-artifact:
     name: Validate Release Artifact
@@ -304,7 +337,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
 
-  # ============================================================================
+  # ==========================================================================
   # Staging Deployment
   #
   # Generic Kubernetes CD orchestration.
@@ -317,7 +350,7 @@ jobs:
   #   ci/kubernetes/deployment/record-evidence.sh
   #
   # No kubectl/SSM/Secrets Manager logic belongs here.
-  # ============================================================================
+  # ==========================================================================
 
   deploy-staging:
     name: Deploy Staging
@@ -600,7 +633,7 @@ jobs:
           ./ci/kubernetes/connection/ssm-tunnel.sh stop
 
 
-  # ============================================================================
+  # ==========================================================================
   # Production Promotion Eligibility
   #
   # Requirements:
@@ -610,7 +643,7 @@ jobs:
   #   4. Artifact identity is unchanged.
   #
   # This job performs no Production mutation.
-  # ============================================================================
+  # ==========================================================================
 
   production-eligibility:
     name: Production Promotion Eligibility
@@ -672,6 +705,7 @@ jobs:
             core.info(`Looking for artifact: ${expectedArtifact}`);
 
             for (let page = 1; page <= 10; page++) {
+
               const response =
                 await github.rest.actions.listWorkflowRuns({
                   owner,
@@ -695,6 +729,7 @@ jobs:
                 );
 
               for (const run of candidateRuns) {
+
                 const artifacts =
                   await github.rest.actions.listWorkflowRunArtifacts({
                     owner,
@@ -817,7 +852,7 @@ jobs:
           echo "eligible=true" >> "$GITHUB_OUTPUT"
 
 
-  # ============================================================================
+  # ==========================================================================
   # Production Release
   #
   # IMPORTANT:
@@ -827,7 +862,7 @@ jobs:
   # - Uses the exact artifact already verified in staging.
   #
   # GitHub Environment "production" provides the approval boundary.
-  # ============================================================================
+  # ==========================================================================
 
   production-release:
     name: Production Release
@@ -1086,6 +1121,17 @@ jobs:
             --manifest-dir "$K8S_MANIFEST_DIR" \
             --output-dir deployment-output
 
+      - name: FAILURE INJECTION (temporary)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Patch the API Deployment readinessProbe to a wrong path
+          # so verify-readiness.sh fails AFTER deployment_started=true.
+          kubectl -n "$K8S_NAMESPACE" patch deployment api \
+            --type=json \
+            -p='[{"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/path","value":"/health/ready/FAIL-INJECTED"}]'
+
       - name: Verify Production rollout and actual Pod image identity
         shell: bash
         env:
@@ -1187,7 +1233,7 @@ jobs:
           ./ci/kubernetes/connection/ssm-tunnel.sh stop
 
 
-  # ============================================================================
+  # ==========================================================================
   # Production Rollback
   #
   # Runs only when:
@@ -1202,7 +1248,7 @@ jobs:
   #   - does not use latest
   #   - does not checkout previous Git commit
   #   - resolves previous known-good production artifact
-  # ============================================================================
+  # ==========================================================================
 
   rollback-production:
     name: Rollback Production

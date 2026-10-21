@@ -1,6 +1,13 @@
 name: Mini-Write CD
 
+
+# ============================================================================
+# Triggers
+# ============================================================================
+
 on:
+
+  # Successful CI completion on main
   workflow_run:
     workflows:
       - Mini-Write CI
@@ -9,12 +16,15 @@ on:
     branches:
       - main
 
+  # Release tag
   push:
     tags:
       - "v*"
 
+  # Manual dispatch
   workflow_dispatch:
     inputs:
+
       environment:
         description: "Deployment environment"
         required: true
@@ -28,10 +38,20 @@ on:
         required: true
         type: string
 
+
+# ============================================================================
+# Permissions
+# ============================================================================
+
 permissions:
   contents: read
   actions: read
   id-token: write
+
+
+# ============================================================================
+# Workflow-level environment
+# ============================================================================
 
 env:
   CI_WORKFLOW: ci.yml
@@ -39,9 +59,14 @@ env:
   ARTIFACT_PREFIX: mini-write-artifact
   MANIFEST_PATH: artifact/artifact-manifest.json
 
+
+# ============================================================================
+# Jobs
+# ============================================================================
+
 jobs:
 
-  # ============================================================================
+  # ==========================================================================
   # Resolve Artifact
   #
   # Resolves an already-produced CI artifact.
@@ -51,7 +76,7 @@ jobs:
   # - No publish.
   # - No artifact creation.
   # - No environment mutation.
-  # ============================================================================
+  # ==========================================================================
 
   resolve-artifact:
     name: Resolve Release Artifact
@@ -172,12 +197,15 @@ jobs:
 
             core.setOutput("source_sha", sourceSha);
             core.setOutput("ci_run_id", String(run.id));
-            core.setOutput("artifact_name", artifactName);          
+            core.setOutput("artifact_name", artifactName);
 
 
-  # ============================================================================
+  # ==========================================================================
   # Fetch + Validate Artifact
-  # ============================================================================
+  #
+  # Validates the manifest identity and exports the immutable artifact
+  # identity used by subsequent deployment and promotion jobs.
+  # ==========================================================================
 
   validate-artifact:
     name: Validate Release Artifact
@@ -231,6 +259,7 @@ jobs:
           set -euo pipefail
 
           python3 - <<'PY'
+
           import json
           import os
           import re
@@ -349,6 +378,7 @@ jobs:
               )
 
           print("Manifest validation passed.")
+
           PY
 
       - name: Export artifact identity
@@ -358,6 +388,7 @@ jobs:
           set -euo pipefail
 
           python3 - <<'PY'
+
           import json
           import os
 
@@ -373,8 +404,10 @@ jobs:
               out.write(f"api_digest={artifacts['api']['digest']}\n")
               out.write(f"worker_digest={artifacts['worker']['digest']}\n")
 
+          PY
 
-  # ============================================================================
+
+  # ==========================================================================
   # Staging Deployment
   #
   # Generic CD orchestration.
@@ -385,7 +418,7 @@ jobs:
   #   ci/deployment/verify.sh
   #
   # No SSH/ECS/kubectl/docker-compose logic belongs here.
-  # ============================================================================
+  # ==========================================================================
 
   deploy-staging:
     name: Deploy Staging
@@ -451,13 +484,16 @@ jobs:
           test -n "${DEPLOYMENT_TARGET:-}"
 
           case "$DEPLOYMENT_TARGET" in
+
             vm|aws-ecs)
               echo "Deployment target: $DEPLOYMENT_TARGET"
               ;;
+
             *)
               echo "Unsupported deployment target: $DEPLOYMENT_TARGET"
               exit 1
               ;;
+
           esac
 
       - name: Validate staging ECS configuration
@@ -570,7 +606,6 @@ jobs:
 
           AWS_ECS_API_TASK_DEFINITION_FAMILY: ${{ env.AWS_ECS_API_TASK_DEFINITION_FAMILY }}
           AWS_ECS_WORKER_TASK_DEFINITION_FAMILY: ${{ env.AWS_ECS_WORKER_TASK_DEFINITION_FAMILY }}
-
         run: |
           set -euo pipefail
 
@@ -595,7 +630,6 @@ jobs:
           AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
 
           API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
-
         run: |
           set -euo pipefail
 
@@ -643,7 +677,7 @@ jobs:
 
           DEPLOYMENT_STARTED_AT: ${{ steps.deployment-timing.outputs.deployment_started_at }}
           DEPLOYMENT_COMPLETED_AT: ${{ steps.deployment-timing.outputs.deployment_completed_at }}
-          DEPLOYMENT_DURATION_SECONDS: ${{ steps.deployment-timing.outputs.deployment_duration_seconds }}          
+          DEPLOYMENT_DURATION_SECONDS: ${{ steps.deployment-timing.outputs.deployment_duration_seconds }}
         run: |
           set -euo pipefail
 
@@ -697,7 +731,7 @@ jobs:
               "startedAt": "${DEPLOYMENT_STARTED_AT}",
               "completedAt": "${DEPLOYMENT_COMPLETED_AT}",
               "durationSeconds": ${DEPLOYMENT_DURATION_SECONDS}
-            },            
+            },
             "evidence": {
               "stagingDeployed": true,
               "stagingVerified": true,
@@ -740,7 +774,7 @@ jobs:
           retention-days: 30
 
 
-  # ============================================================================
+  # ==========================================================================
   # Production Promotion Eligibility
   #
   # Requirements:
@@ -750,7 +784,7 @@ jobs:
   #   4. Artifact identity is unchanged.
   #
   # This job performs no production mutation.
-  # ============================================================================
+  # ==========================================================================
 
   production-eligibility:
     name: Production Promotion Eligibility
@@ -831,6 +865,7 @@ jobs:
             let matchedRun = null;
 
             for (const run of candidateRuns) {
+
               const artifacts =
                 await github.rest.actions.listWorkflowRunArtifacts({
                   owner,
@@ -906,6 +941,7 @@ jobs:
             staging-evidence/evidence/promotion-eligibility.json
 
           python3 - <<'PY'
+
           import json
           import os
           import sys
@@ -1015,8 +1051,10 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
               out.write("eligible=true\n")
 
+          PY
 
-  # ============================================================================
+
+  # ==========================================================================
   # Production Release
   #
   # IMPORTANT:
@@ -1026,7 +1064,7 @@ jobs:
   # - Uses the exact artifact already verified in staging.
   #
   # GitHub Environment "production" provides the approval boundary.
-  # ============================================================================
+  # ==========================================================================
 
   production-release:
     name: Production Release
@@ -1098,13 +1136,16 @@ jobs:
           test -n "${DEPLOYMENT_TARGET:-}"
 
           case "$DEPLOYMENT_TARGET" in
+
             vm|aws-ecs)
               echo "Production deployment target: $DEPLOYMENT_TARGET"
               ;;
+
             *)
               echo "Unsupported deployment target: $DEPLOYMENT_TARGET"
               exit 1
               ;;
+
           esac
 
       - name: Validate production ECS configuration
@@ -1347,6 +1388,7 @@ jobs:
           export WORKER_TASK_DEFINITION
 
           python3 - <<'PY'
+
           import json
           import os
           from datetime import datetime, timezone
@@ -1396,6 +1438,7 @@ jobs:
           ) as f:
               json.dump(evidence, f, indent=2)
               f.write("\n")
+
           PY
 
           cat evidence/production-verification.json
@@ -1409,7 +1452,7 @@ jobs:
           retention-days: 90
 
 
-  # ============================================================================
+  # ==========================================================================
   # Production Rollback
   #
   # Runs only when:
@@ -1424,7 +1467,7 @@ jobs:
   #   - does not use latest
   #   - does not checkout previous Git commit
   #   - resolves previous known-good production artifact
-  ## ============================================================================
+  # ==========================================================================
 
   rollback-production:
     name: Rollback Production
@@ -1493,13 +1536,16 @@ jobs:
           test -n "${DEPLOYMENT_TARGET:-}"
 
           case "$DEPLOYMENT_TARGET" in
+
             vm|aws-ecs)
               echo "Rollback target: $DEPLOYMENT_TARGET"
               ;;
+
             *)
               echo "Unsupported rollback target: $DEPLOYMENT_TARGET"
               exit 1
               ;;
+
           esac
 
       - name: Configure AWS credentials (OIDC)
@@ -1583,7 +1629,6 @@ jobs:
           AWS_ECS_CLUSTER: ${{ env.AWS_ECS_CLUSTER }}
           AWS_ECS_API_SERVICE: ${{ env.AWS_ECS_API_SERVICE }}
           AWS_ECS_WORKER_SERVICE: ${{ env.AWS_ECS_WORKER_SERVICE }}
-
         run: |
           set -euo pipefail
 
@@ -1656,6 +1701,7 @@ jobs:
           mkdir -p evidence
 
           python3 - <<'PY'
+
           import json
           import os
           from datetime import datetime, timezone
@@ -1687,6 +1733,7 @@ jobs:
           ) as f:
               json.dump(evidence, f, indent=2)
               f.write("\n")
+
           PY
 
           cat evidence/rollback-verification.json

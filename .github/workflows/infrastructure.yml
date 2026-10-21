@@ -20,7 +20,13 @@
 
 name: Mini-Write Infrastructure
 
+
+# ============================================================================
+# Triggers
+# ============================================================================
+
 on:
+
   pull_request:
     paths:
       - "infra/terraform/**"
@@ -35,12 +41,14 @@ on:
 
   workflow_dispatch:
     inputs:
+
       environment:
         description: "Infrastructure environment"
         required: true
         type: choice
         options:
           - staging
+
       action:
         description: "Infrastructure action"
         required: true
@@ -49,23 +57,39 @@ on:
           - plan
           - apply
 
+
+# ============================================================================
+# Permissions
+# ============================================================================
+
 permissions:
   contents: read
   id-token: write
+
+
+# ============================================================================
+# Workflow-level environment
+# ============================================================================
 
 env:
   TERRAFORM_VERSION: "1.16.0"
   TERRAFORM_ROOT: "infra/terraform"
   TERRAFORM_ENVIRONMENT: "staging"
 
+
+# ============================================================================
+# Jobs
+# ============================================================================
+
 jobs:
 
-  # ============================================================================
+  # ==========================================================================
   # Terraform Format
-  # ============================================================================
+  # ==========================================================================
 
   format:
     name: Terraform Format
+
     runs-on:
       - self-hosted
       - linux
@@ -97,12 +121,13 @@ jobs:
             -recursive
 
 
-  # ============================================================================
+  # ==========================================================================
   # Terraform Validate
-  # ============================================================================
+  # ==========================================================================
 
   validate:
     name: Terraform Validate
+
     needs:
       - format
 
@@ -143,7 +168,7 @@ jobs:
           terraform validate
 
 
-  # ============================================================================
+  # ==========================================================================
   # Terraform Plan
   #
   # PR:
@@ -151,10 +176,11 @@ jobs:
   #
   # main:
   #   plan and publish the exact plan artifact for the apply job
-  # ============================================================================
+  # ==========================================================================
 
   plan:
     name: Terraform Plan
+
     needs:
       - validate
 
@@ -163,7 +189,7 @@ jobs:
       - linux
       - x64
       - mini-write
-    
+
     environment:
       name: staging
 
@@ -188,12 +214,12 @@ jobs:
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      # ------------------------------------------------------------------------
+      # ----------------------------------------------------------------------
       # AWS identity
       #
       # The role is supplied by GitHub Environment / Repository Variables.
       # No long-lived AWS access keys are stored in GitHub.
-      # ------------------------------------------------------------------------
+      # ----------------------------------------------------------------------
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
@@ -219,13 +245,11 @@ jobs:
       - name: Terraform Plan
         id: plan
         working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
-
         env:
           TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
           TF_VAR_db_password: ${{ secrets.POSTGRES_PASSWORD }}
           TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
           TF_VAR_redis_password: ${{ secrets.REDIS_PASSWORD }}
-
         run: |
           set -euo pipefail
 
@@ -236,9 +260,9 @@ jobs:
 
           echo "plan_created=true" >> "$GITHUB_OUTPUT"
 
-      # ------------------------------------------------------------------------
+      # ----------------------------------------------------------------------
       # Human-readable plan
-      # ------------------------------------------------------------------------
+      # ----------------------------------------------------------------------
 
       - name: Export Plan Summary
         working-directory: ${{ env.TERRAFORM_ROOT }}/environments/${{ env.TERRAFORM_ENVIRONMENT }}
@@ -249,11 +273,11 @@ jobs:
             -no-color \
             tfplan > terraform-plan.txt
 
-      # ------------------------------------------------------------------------
+      # ----------------------------------------------------------------------
       # Plan artifact
       #
       # The binary tfplan is the reviewed execution artifact.
-      # ------------------------------------------------------------------------
+      # ----------------------------------------------------------------------
 
       - name: Upload Terraform Plan
         if: |
@@ -268,10 +292,10 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      # ------------------------------------------------------------------------
+      # ----------------------------------------------------------------------
       # PR plan is evidence only.
       # It MUST NOT be applied.
-      # ------------------------------------------------------------------------
+      # ----------------------------------------------------------------------
 
       - name: Publish PR Plan Summary
         if: github.event_name == 'pull_request'
@@ -288,23 +312,24 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
 
-  # ============================================================================
+  # ==========================================================================
   # Apply
   #
   # Only main and explicit manual apply may mutate infrastructure.
   #
   # The apply job consumes the EXACT plan generated by the plan job.
   # It does NOT run a new terraform plan.
-  # ============================================================================
+  # ==========================================================================
 
   apply:
     name: Terraform Apply
+
     needs:
       - plan
 
     if: >
       github.ref == 'refs/heads/main' &&
-      github.event_name == 'workflow_dispatch' && 
+      github.event_name == 'workflow_dispatch' &&
       github.event.inputs.action == 'apply'
 
     runs-on:
@@ -404,7 +429,6 @@ jobs:
           TF_VAR_db_password: ${{ secrets.POSTGRES_PASSWORD }}
           TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
           TF_VAR_redis_password: ${{ secrets.REDIS_PASSWORD }}
-          
         run: |
           set -euo pipefail
 

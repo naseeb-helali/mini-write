@@ -1,43 +1,79 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
 die() {
-    echo "ROLLBACK VALIDATION ERROR: $*" >&2
-    exit 1
+  echo "ROLLBACK VALIDATION ERROR: $*" >&2
+  exit 1
 }
+
+
+# ============================================================================
+# Validate inputs
+# ============================================================================
 
 : "${FAILED_SOURCE_SHA:?FAILED_SOURCE_SHA is required}"
 : "${TARGET_SOURCE_SHA:?TARGET_SOURCE_SHA is required}"
 : "${ROLLBACK_EVIDENCE:?ROLLBACK_EVIDENCE is required}"
 
-[[ -f "$ROLLBACK_EVIDENCE" ]] || \
-    die "Rollback evidence not found: $ROLLBACK_EVIDENCE"
+[[ -f "$ROLLBACK_EVIDENCE" ]] \
+  || die "Rollback evidence not found: $ROLLBACK_EVIDENCE"
+
+
+# ============================================================================
+# Validate rollback target evidence
+# ============================================================================
 
 python3 - <<'PY'
+
 import json
 import os
 import re
 import sys
+
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+
+def fail(message):
+    print(f"ROLLBACK VALIDATION FAILED: {message}")
+    sys.exit(1)
+
+
+def require(condition, message):
+    if not condition:
+        fail(message)
+
+
+# ----------------------------------------------------------------------------
+# Load evidence
+# ----------------------------------------------------------------------------
 
 path = os.environ["ROLLBACK_EVIDENCE"]
 
 with open(path, "r", encoding="utf-8") as f:
     evidence = json.load(f)
 
+
+# ----------------------------------------------------------------------------
+# Local constants
+# ----------------------------------------------------------------------------
+
 failed_sha = os.environ["FAILED_SOURCE_SHA"]
 target_sha = os.environ["TARGET_SOURCE_SHA"]
 
-def fail(message):
-    print(f"ROLLBACK VALIDATION FAILED: {message}")
-    sys.exit(1)
-
-def require(condition, message):
-    if not condition:
-        fail(message)
-
 sha_pattern = re.compile(r"^[0-9a-f]{40}$")
 digest_pattern = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+# ----------------------------------------------------------------------------
+# Validate evidence identity
+# ----------------------------------------------------------------------------
 
 require(
     evidence.get("schemaVersion") == "1.0",
@@ -63,6 +99,11 @@ require(
     evidence.get("environment") == "production",
     "Evidence environment is not production"
 )
+
+
+# ----------------------------------------------------------------------------
+# Validate release identity
+# ----------------------------------------------------------------------------
 
 release = evidence.get("release", {})
 artifact = evidence.get("artifact", {})
@@ -95,6 +136,11 @@ require(
     "Rollback target must differ from failed release"
 )
 
+
+# ----------------------------------------------------------------------------
+# Validate per-service artifact identity
+# ----------------------------------------------------------------------------
+
 api = artifact.get("api", {})
 worker = artifact.get("worker", {})
 
@@ -120,6 +166,11 @@ require(
     "Invalid Worker rollback digest"
 )
 
+
+# ----------------------------------------------------------------------------
+# Report
+# ----------------------------------------------------------------------------
+
 print("==========================================")
 print("ROLLBACK TARGET VALIDATED")
 print("==========================================")
@@ -128,4 +179,5 @@ print(f"Target release:  {target_sha}")
 print(f"API digest:      {api['digest']}")
 print(f"Worker digest:   {worker['digest']}")
 print("Production:      PREVIOUSLY VERIFIED")
+
 PY

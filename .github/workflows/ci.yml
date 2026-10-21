@@ -1,25 +1,46 @@
 name: Mini-Write CI
 
+
+# ============================================================================
+# Triggers
+# ============================================================================
+
 on:
   push:
     branches: [main]
   pull_request:
+
+
+# ============================================================================
+# Workflow-level environment
+# ============================================================================
 
 env:
   IMAGE_NAME: mini-write
   NODE_VERSION: "20"
   COVERAGE_THRESHOLD: "70"
 
+
+# ============================================================================
+# Permissions
+# ============================================================================
+
 permissions:
   contents: read
   packages: write
   id-token: write
 
+
+# ============================================================================
+# Jobs
+# ============================================================================
+
 jobs:
 
-  # ============================================================
+  # ==========================================================================
   # 0) VALIDATE
-  # ============================================================
+  # ==========================================================================
+
   validate:
     name: Validate Execution Environment
     runs-on: [self-hosted, linux, x64, mini-write]
@@ -132,9 +153,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # ============================================================
+
+  # ==========================================================================
   # 1) QUALITY
-  # ============================================================
+  # ==========================================================================
+
   quality:
     name: Quality (${{ matrix.service }})
     needs: validate
@@ -213,9 +236,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # ============================================================
+
+  # ==========================================================================
   # 2) SECURITY
-  # ============================================================
+  # ==========================================================================
+
   security:
     name: Security (${{ matrix.service }})
     needs: validate
@@ -295,9 +320,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # ============================================================
+
+  # ==========================================================================
   # 3) TESTS
-  # ============================================================
+  # ==========================================================================
+
   tests:
     name: Tests (${{ matrix.service }})
     needs: validate
@@ -414,9 +441,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # ============================================================
+
+  # ==========================================================================
   # 4) BUILD + SECURITY SCAN + PUBLISH
-  # ============================================================
+  # ==========================================================================
+
   build:
     name: Build Artifacts
     needs: [quality, security, tests]
@@ -453,9 +482,10 @@ jobs:
           date +%s > .ci-timing/started-epoch
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
 
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
       # REGISTRY CONFIGURATION
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+
       - name: Resolve registry configuration
         id: registry
         shell: bash
@@ -468,6 +498,7 @@ jobs:
           set -euo pipefail
 
           case "${REGISTRY_TYPE}" in
+
             ecr)
               test -n "${AWS_ACCOUNT_ID}" || {
                 echo "::error::AWS_ACCOUNT_ID is required when REGISTRY_TYPE=ecr"
@@ -491,6 +522,7 @@ jobs:
               echo "::error::Expected one of: ghcr, ecr"
               exit 1
               ;;
+
           esac
 
           API_IMAGE="${REGISTRY_PREFIX}/${IMAGE_NAME}-api:${GITHUB_SHA}"
@@ -510,9 +542,10 @@ jobs:
           echo "API image     : ${API_IMAGE}"
           echo "Worker image  : ${WORKER_IMAGE}"
 
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
       # AWS / GHCR AUTHENTICATION
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+
       - name: Configure AWS credentials (OIDC)
         if: steps.registry.outputs.registry_type == 'ecr'
         uses: aws-actions/configure-aws-credentials@v4
@@ -532,9 +565,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
       # DOCKER BUILD ENVIRONMENT
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -579,9 +613,10 @@ jobs:
           mkdir -p .trivycache
           ls -ld .trivycache
 
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
       # API
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+
       - name: Build API image (local)
         id: api_build_local
         uses: docker/build-push-action@v6
@@ -686,9 +721,10 @@ jobs:
           echo "API published digest: ${DIGEST}"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
 
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
       # WORKER
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+
       - name: Build Worker image (local)
         id: worker_build_local
         uses: docker/build-push-action@v6
@@ -838,9 +874,10 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
       # MAIN ONLY
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+
       - name: Verify published image digests
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -858,9 +895,10 @@ jobs:
           echo "Published artifact digests are valid."
 
 
-  # ============================================================
+  # ==========================================================================
   # 5) ARTIFACT VERIFICATION
-  # ============================================================
+  # ==========================================================================
+
   artifact-verification:
     name: Verify Artifacts
     needs: build
@@ -882,9 +920,10 @@ jobs:
           date +%s > .ci-timing/started-epoch
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .ci-timing/started-at
 
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
       # Always verify metadata passed from the build job
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+
       - name: Verify build metadata
         env:
           REGISTRY_TYPE: ${{ needs.build.outputs.registry_type }}
@@ -905,17 +944,21 @@ jobs:
           echo "Worker image  : ${WORKER_IMAGE}"
 
           case "${REGISTRY_TYPE}" in
+
             ecr|ghcr)
               ;;
+
             *)
               echo "::error::Invalid registry type: ${REGISTRY_TYPE}"
               exit 1
               ;;
+
           esac
 
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
       # Registry authentication is required only on main.
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+
       - name: Configure AWS credentials (OIDC)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.registry_type == 'ecr'
         uses: aws-actions/configure-aws-credentials@v4
@@ -935,9 +978,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
       # MAIN ONLY - verify registry artifacts
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+
       - name: Verify published API artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -1007,9 +1051,10 @@ jobs:
 
           echo "Worker remote artifact verified."
 
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
       # MAIN ONLY - verify build outputs
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+
       - name: Verify build digests
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -1024,9 +1069,10 @@ jobs:
           echo "API digest verified: ${API_DIGEST}"
           echo "Worker digest verified: ${WORKER_DIGEST}"
 
-      # ----------------------------------------------------------
-      # PULL REQUEST      
-      # ----------------------------------------------------------
+      # ----------------------------------------------------------------------
+      # PULL REQUEST
+      # ----------------------------------------------------------------------
+
       - name: Verify pull request artifact metadata
         if: github.event_name == 'pull_request'
         env:
@@ -1095,9 +1141,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # ============================================================
+
+  # ==========================================================================
   # 6) PUBLISH ARTIFACT MANIFEST
-  # ============================================================
+  # ==========================================================================
+
   publish-manifest:
     name: Publish Artifact Manifest
 
@@ -1329,9 +1377,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # ============================================================
+
+  # ==========================================================================
   # 7) CI TIMING AGGREGATION
-  # ============================================================
+  # ==========================================================================
+
   ci-timing:
     name: Aggregate CI Timing Evidence
     if: ${{ always() }}
@@ -1346,6 +1396,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, mini-write]
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -1371,6 +1422,7 @@ jobs:
           test -d ci-timing-input
 
           node <<'NODE'
+
           const fs = require("fs");
           const path = require("path");
 
@@ -1546,9 +1598,11 @@ jobs:
           );
 
           console.log(JSON.stringify(evidence, null, 2));
+
           NODE
 
           node <<'NODE'
+
           const fs = require("fs");
           const schema = JSON.parse(
             fs.readFileSync("ci/ci-timing.schema.json", "utf8")
@@ -1599,6 +1653,7 @@ jobs:
           }
 
           console.log("CI timing evidence contract validation passed.");
+
           NODE
 
       - name: Upload CI timing evidence
