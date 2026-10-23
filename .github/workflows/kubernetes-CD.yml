@@ -1,0 +1,1505 @@
+name: Mini-Write Kubernetes CD
+
+# ============================================================================
+# Triggers
+# ============================================================================
+
+on:
+
+  # Successful CI completion on main
+  workflow_run:
+    workflows:
+      - Mini-Write CI
+    types:
+      - completed
+    branches:
+      - main
+
+  # Release tag
+  push:
+    tags:
+      - "v*"
+
+  # Manual dispatch
+  workflow_dispatch:
+    inputs:
+
+      environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+      source_sha:
+        description: "Source SHA whose existing CI artifact should be deployed"
+        required: true
+        type: string
+
+
+# ============================================================================
+# Concurrency
+#
+# Staging, Production and Rollback target the same namespace and Deployments.
+# Keep the entire release transaction serialized so another run cannot mutate
+# the shared workloads between a failed Production release and its rollback.
+# ============================================================================
+
+concurrency:
+  group: mini-write-kubernetes-shared-deployment
+  cancel-in-progress: false
+
+
+# ============================================================================
+# Permissions
+# ============================================================================
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+
+# ============================================================================
+# Workflow-level environment
+# ============================================================================
+
+env:
+  CI_WORKFLOW: ci.yml
+  KUBERNETES_CD_WORKFLOW: kubernetes-cd.yml
+  CI_ARTIFACT_PREFIX: mini-write-artifact
+  CI_MANIFEST_PATH: artifact/artifact-manifest.json
+
+  DEPLOYMENT_TARGET: kubernetes-ec2
+  REGISTRY_TYPE: ecr
+  AWS_ACCOUNT_ID: "496494570164"
+  AWS_REGION: us-east-1
+
+  K8S_CLUSTER_NAME: mini-write-staging-k8s
+  K8S_NAMESPACE: mini-write-staging
+  K8S_CONTROL_PLANE_INSTANCE_ID: i-0552c82b27dd23b29
+  KUBECONFIG: /home/janad/.kube/mini-write-deployer/kubeconfig
+  K8S_MANIFEST_DIR: infra/kubernetes-ec2/manifests/workloads/staging
+  K8S_ROLLOUT_TIMEOUT: 300s
+
+  # Existing, narrowly scoped AWS Secrets Manager resources. These identifiers
+  # are not secret values; the CD role reads SecretString at runtime.
+  K8S_DATABASE_SECRET_ARN: arn:aws:secretsmanager:us-east-1:496494570164:secret:mini-write-staging/database-nl8beV
+  K8S_REDIS_SECRET_ARN: arn:aws:secretsmanager:us-east-1:496494570164:secret:mini-write-staging/redis-lIfx33
+  K8S_JWT_SECRET_ARN: arn:aws:secretsmanager:us-east-1:496494570164:secret:mini-write-staging/jwt-KSUqf8
+
+
+# ============================================================================
+# Jobs
+# ============================================================================
+
+jobs:
+
+  # ==========================================================================
+  # Resolve Artifact
+  #
+  # Resolves an already-produced CI artifact.
+  #
+  # IMPORTANT:
+  # - No build.
+  # - No publish.
+  # - No artifact creation.
+  # - No environment mutation.
+  # ==========================================================================
+
+  resolve-artifact:
+    name: Resolve Release Artifact
+
+    if: >
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
+      ||
+      (
+        github.event_name == 'push' &&
+        startsWith(github.ref, 'refs/tags/v')
+      )
+      ||
+      (
+        github.event_name == 'workflow_dispatch'
+      )
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    outputs:
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      ci_run_id: ${{ steps.resolve.outputs.ci_run_id }}
+      artifact_name: ${{ steps.resolve.outputs.artifact_name }}
+
+    steps:
+
+      - name: Resolve source SHA
+        id: source
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          case "$EVENT_NAME" in
+
+            workflow_run)
+              SOURCE_SHA="$WORKFLOW_RUN_SHA"
+              ;;
+
+            push)
+              SOURCE_SHA="$EVENT_SHA"
+              ;;
+
+            workflow_dispatch)
+              SOURCE_SHA="$INPUT_SHA"
+              ;;
+
+            *)
+              echo "Unsupported event: $EVENT_NAME"
+              exit 1
+              ;;
+
+          esac
+
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid source SHA: $SOURCE_SHA"
+            exit 1
+          fi
+
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve successful CI run and exact artifact
+        id: resolve
+        uses: actions/github-script@v7
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          CI_WORKFLOW: ${{ env.CI_WORKFLOW }}
+          ARTIFACT_PREFIX: ${{ env.CI_ARTIFACT_PREFIX }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sourceSha = process.env.SOURCE_SHA;
+            const expectedArtifact =
+              `${process.env.ARTIFACT_PREFIX}-${sourceSha}`;
+
+            core.info(`Source SHA: ${sourceSha}`);
+            core.info(`Expected artifact: ${expectedArtifact}`);
+
+            for (let page = 1; page <= 10; page++) {
+
+              const response =
+                await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: process.env.CI_WORKFLOW,
+                  head_sha: sourceSha,
+                  status: "completed",
+                  per_page: 100,
+                  page
+                });
+
+              const runs = response.data.workflow_runs
+                .filter(run =>
+                  run.head_sha === sourceSha &&
+                  run.conclusion === "success"
+                )
+                .sort((a, b) =>
+                  new Date(b.created_at) - new Date(a.created_at)
+                );
+
+              for (const run of runs) {
+
+                const artifacts =
+                  await github.rest.actions.listWorkflowRunArtifacts({
+                    owner,
+                    repo,
+                    run_id: run.id,
+                    per_page: 100
+                  });
+
+                const found = artifacts.data.artifacts.some(
+                  a => a.name === expectedArtifact && !a.expired
+                );
+
+                if (found) {
+                  core.info(`CI run: ${run.id}`);
+                  core.info(`Artifact: ${expectedArtifact}`);
+
+                  core.setOutput("source_sha", sourceSha);
+                  core.setOutput("ci_run_id", String(run.id));
+                  core.setOutput("artifact_name", expectedArtifact);
+                  return;
+                }
+              }
+
+              if (response.data.workflow_runs.length < 100) {
+                break;
+              }
+            }
+
+            core.setFailed(
+              `No successful ${process.env.CI_WORKFLOW} run ` +
+              `with artifact ${expectedArtifact}`
+            );
+
+
+  # ==========================================================================
+  # Fetch + Validate Artifact
+  #
+  # Preserves the original manifest contract and additionally constrains
+  # repository identities to the ECR repositories used by this EC2 cluster.
+  # ==========================================================================
+
+  validate-artifact:
+    name: Validate Release Artifact
+
+    needs:
+      - resolve-artifact
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    outputs:
+      release_id: ${{ steps.identity.outputs.release_id }}
+      version: ${{ steps.identity.outputs.version }}
+      api_name: ${{ steps.identity.outputs.api_name }}
+      api_digest: ${{ steps.identity.outputs.api_digest }}
+      worker_name: ${{ steps.identity.outputs.worker_name }}
+      worker_digest: ${{ steps.identity.outputs.worker_digest }}
+
+    steps:
+
+      - name: Checkout source revision
+        uses: actions/checkout@v4
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+
+      - name: Download original CI artifact manifest
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ needs.resolve-artifact.outputs.artifact_name }}
+          path: artifact
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.resolve-artifact.outputs.ci_run_id }}
+
+      - name: Verify and display artifact manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f "$CI_MANIFEST_PATH"
+
+          echo "Artifact manifest:"
+          jq . "$CI_MANIFEST_PATH"
+
+      - name: Validate manifest identity
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/deployment/validate-artifact.sh
+
+          ./ci/kubernetes/deployment/validate-artifact.sh \
+            --manifest "$CI_MANIFEST_PATH" \
+            --expected-sha "$SOURCE_SHA"
+
+      - name: Export immutable artifact identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          {
+            echo "release_id=$(jq -er '.release.id' "$CI_MANIFEST_PATH")"
+            echo "version=$(jq -er '.release.version' "$CI_MANIFEST_PATH")"
+            echo "api_name=$(jq -er '.artifacts.api.name' "$CI_MANIFEST_PATH")"
+            echo "api_digest=$(jq -er '.artifacts.api.digest' "$CI_MANIFEST_PATH")"
+            echo "worker_name=$(jq -er '.artifacts.worker.name' "$CI_MANIFEST_PATH")"
+            echo "worker_digest=$(jq -er '.artifacts.worker.digest' "$CI_MANIFEST_PATH")"
+          } >> "$GITHUB_OUTPUT"
+
+
+  # ==========================================================================
+  # Staging Deployment
+  #
+  # Generic Kubernetes CD orchestration.
+  #
+  # Deployment implementation is delegated to:
+  #
+  #   ci/kubernetes/deployment/deploy.sh
+  #   ci/kubernetes/deployment/verify.sh
+  #   ci/kubernetes/deployment/verify-readiness.sh
+  #   ci/kubernetes/deployment/record-evidence.sh
+  #
+  # No kubectl/SSM/Secrets Manager logic belongs here.
+  # ==========================================================================
+
+  deploy-staging:
+    name: Deploy Staging
+
+    needs:
+      - resolve-artifact
+      - validate-artifact
+
+    if: >
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
+      ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.environment == 'staging'
+      )
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    environment:
+      name: staging
+
+    timeout-minutes: 20
+
+    steps:
+
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+
+      - name: Validate deployment target and Staging Kubernetes configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/deployment/validate-target.sh
+
+          ./ci/kubernetes/deployment/validate-target.sh staging
+
+      - name: Validate Staging workload manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f "$K8S_MANIFEST_DIR/validate.sh"
+
+          bash "$K8S_MANIFEST_DIR/validate.sh"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/mini-write-github-cd-runner
+          role-session-name: mini-write-staging-deployment
+
+      - name: Verify AWS assumed identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/deployment/validate-aws-identity.sh
+
+          ./ci/kubernetes/deployment/validate-aws-identity.sh
+
+      - name: Start SSM Kubernetes API tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/connection/ssm-tunnel.sh
+
+          ./ci/kubernetes/connection/ssm-tunnel.sh start
+
+      - name: Validate Kubernetes Secret synchronization access
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/secrets/validate.sh
+
+          ./ci/kubernetes/secrets/validate.sh
+
+      - name: Synchronize application Secrets from AWS Secrets Manager
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/secrets/sync.sh
+
+          ./ci/kubernetes/secrets/sync.sh
+
+      - name: Download original CI artifact manifest
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ needs.resolve-artifact.outputs.artifact_name }}
+          path: artifact
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.resolve-artifact.outputs.ci_run_id }}
+
+      - name: Create immutable Staging deployment request
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+          VERSION: ${{ needs.validate-artifact.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p deployment-request deployment-output
+
+          cat > deployment-request/request.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "environment": "staging",
+            "release": {
+              "id": "$RELEASE_ID",
+              "source": "$SOURCE_SHA",
+              "version": "$VERSION"
+            },
+            "artifacts": $(jq -c '.artifacts' "$CI_MANIFEST_PATH")
+          }
+          EOF
+
+          jq empty deployment-request/request.json
+
+          cat deployment-request/request.json
+
+      - name: Start deployment timer
+        id: deployment-timer-start
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          started_epoch="$(date +%s)"
+          started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          echo "started_epoch=${started_epoch}" >> "$GITHUB_OUTPUT"
+          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy through Kubernetes adapter
+        shell: bash
+        env:
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/deployment/deploy.sh
+
+          ./ci/kubernetes/deployment/deploy.sh \
+            --request deployment-request/request.json \
+            --manifest-dir "$K8S_MANIFEST_DIR" \
+            --output-dir deployment-output
+
+      - name: Verify rollout and actual running Pod image identity
+        shell: bash
+        env:
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
+        run: |
+          set -euo pipefail
+
+          test -f deployment-output/deployment.json
+
+          ./ci/kubernetes/deployment/verify.sh \
+            --request deployment-request/request.json \
+            --output-dir deployment-output
+
+      - name: Verify application readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f deployment-output/runtime-verification.json
+
+          ./ci/kubernetes/deployment/verify-readiness.sh \
+            deployment-output/runtime-verification.json \
+            deployment-output/readiness-verification.json
+
+      - name: Capture deployment timing
+        id: deployment-timing
+        shell: bash
+        env:
+          DEPLOYMENT_STARTED_EPOCH: ${{ steps.deployment-timer-start.outputs.started_epoch }}
+          DEPLOYMENT_STARTED_AT: ${{ steps.deployment-timer-start.outputs.started_at }}
+        run: |
+          set -euo pipefail
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          duration_seconds="$((completed_epoch - DEPLOYMENT_STARTED_EPOCH))"
+
+          echo "deployment_started_at=${DEPLOYMENT_STARTED_AT}" >> "$GITHUB_OUTPUT"
+          echo "deployment_completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
+          echo "deployment_duration_seconds=${duration_seconds}" >> "$GITHUB_OUTPUT"
+
+          cat > deployment-output/deployment-timing.json <<EOF
+          {
+            "deploymentStartedAt": "${DEPLOYMENT_STARTED_AT}",
+            "deploymentCompletedAt": "${completed_at}",
+            "deploymentDurationSeconds": ${duration_seconds}
+          }
+          EOF
+
+          jq empty deployment-output/deployment-timing.json
+
+      - name: Create Staging promotion evidence
+        shell: bash
+        env:
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
+          EVIDENCE_ENVIRONMENT: staging
+          EVIDENCE_GATE: promotion-eligibility
+          DEPLOYMENT_STARTED_AT: ${{ steps.deployment-timing.outputs.deployment_started_at }}
+          DEPLOYMENT_COMPLETED_AT: ${{ steps.deployment-timing.outputs.deployment_completed_at }}
+          DEPLOYMENT_DURATION_SECONDS: ${{ steps.deployment-timing.outputs.deployment_duration_seconds }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p staging-evidence/evidence
+
+          test -x ./ci/kubernetes/deployment/record-evidence.sh
+
+          ./ci/kubernetes/deployment/record-evidence.sh \
+            --request deployment-request/request.json \
+            --deployment-file deployment-output/deployment.json \
+            --runtime-file deployment-output/runtime-verification.json \
+            --readiness-file deployment-output/readiness-verification.json \
+            --output staging-evidence/evidence/promotion-eligibility.json
+
+          cat staging-evidence/evidence/promotion-eligibility.json
+
+      - name: Write evidence references
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          cat > evidence.json <<EOF
+          {
+            "evidenceReferences": {
+              "githubActionsRunUrl": "${RUN_URL}",
+              "githubActionsRunId": "${RUN_ID}"
+            }
+          }
+          EOF
+
+          cat evidence.json
+
+      - name: Upload Staging promotion eligibility evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-kubernetes-promotion-eligibility-${{ needs.resolve-artifact.outputs.source_sha }}
+          path: |
+            staging-evidence/evidence/promotion-eligibility.json
+            deployment-output/deployment.json
+            deployment-output/replicasets.json
+            deployment-output/pods.json
+            deployment-output/runtime-verification.json
+            deployment-output/readiness-verification.json
+            deployment-output/deployment-timing.json
+            evidence.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Stop SSM Kubernetes API tunnel
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/connection/ssm-tunnel.sh stop
+
+
+  # ==========================================================================
+  # Production Promotion Eligibility
+  #
+  # Requirements:
+  #   1. Successful CI artifact exists.
+  #   2. Successful Kubernetes Staging CD exists.
+  #   3. Staging promotion evidence exists.
+  #   4. Artifact identity is unchanged.
+  #
+  # This job performs no Production mutation.
+  # ==========================================================================
+
+  production-eligibility:
+    name: Production Promotion Eligibility
+
+    needs:
+      - resolve-artifact
+      - validate-artifact
+
+    if: >
+      always()
+      &&
+      needs.resolve-artifact.result == 'success'
+      &&
+      needs.validate-artifact.result == 'success'
+      &&
+      (
+        (
+          github.event_name == 'push' &&
+          startsWith(github.ref, 'refs/tags/v')
+        )
+        ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          inputs.environment == 'production'
+        )
+      )
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    outputs:
+      staging_run_id: ${{ steps.staging.outputs.run_id }}
+      eligible: ${{ steps.eligibility.outputs.eligible }}
+
+    steps:
+
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+
+      - name: Resolve successful Kubernetes Staging CD run
+        id: staging
+        uses: actions/github-script@v7
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          CD_WORKFLOW: ${{ env.KUBERNETES_CD_WORKFLOW }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sourceSha = process.env.SOURCE_SHA;
+            const expectedArtifact =
+              `mini-write-kubernetes-promotion-eligibility-${sourceSha}`;
+
+            core.info(`Looking for artifact: ${expectedArtifact}`);
+
+            for (let page = 1; page <= 10; page++) {
+
+              const response =
+                await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: process.env.CD_WORKFLOW,
+                  status: "completed",
+                  per_page: 100,
+                  page
+                });
+
+              const candidateRuns = response.data.workflow_runs
+                .filter(run =>
+                  run.conclusion === "success" &&
+                  (
+                    run.event === "workflow_run" ||
+                    run.event === "workflow_dispatch"
+                  )
+                )
+                .sort((a, b) =>
+                  new Date(b.created_at) - new Date(a.created_at)
+                );
+
+              for (const run of candidateRuns) {
+
+                const artifacts =
+                  await github.rest.actions.listWorkflowRunArtifacts({
+                    owner,
+                    repo,
+                    run_id: run.id,
+                    per_page: 100
+                  });
+
+                const found = artifacts.data.artifacts.some(
+                  a => a.name === expectedArtifact && !a.expired
+                );
+
+                if (found) {
+                  core.info(
+                    `Found artifact ${expectedArtifact} in CD run ${run.id}`
+                  );
+                  core.setOutput("run_id", String(run.id));
+                  return;
+                }
+              }
+
+              if (response.data.workflow_runs.length < 100) {
+                break;
+              }
+            }
+
+            core.setFailed(
+              `No successful CD run found that produced ` +
+              `artifact ${expectedArtifact}`
+            );
+
+      - name: Write eligibility evidence references
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          cat > evidence.json <<EOF
+          {
+            "evidenceReferences": {
+              "githubActionsRunUrl": "${RUN_URL}",
+              "githubActionsRunId": "${RUN_ID}"
+            }
+          }
+          EOF
+
+          cat evidence.json
+
+      - name: Download Kubernetes Staging evidence
+        uses: actions/download-artifact@v5
+        with:
+          name: mini-write-kubernetes-promotion-eligibility-${{ needs.resolve-artifact.outputs.source_sha }}
+          path: .
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.staging.outputs.run_id }}
+
+      - name: Build Promotion Eligibility request
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+          API_NAME: ${{ needs.validate-artifact.outputs.api_name }}
+          API_DIGEST: ${{ needs.validate-artifact.outputs.api_digest }}
+          WORKER_NAME: ${{ needs.validate-artifact.outputs.worker_name }}
+          WORKER_DIGEST: ${{ needs.validate-artifact.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p promotion-request
+
+          cat > promotion-request/request.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "sourceEnvironment": "staging",
+            "targetEnvironment": "production",
+            "release": {
+              "id": "$RELEASE_ID",
+              "source": "$SOURCE_SHA"
+            },
+            "artifact": {
+              "api": {
+                "name": "$API_NAME",
+                "tag": "$SOURCE_SHA",
+                "digest": "$API_DIGEST"
+              },
+              "worker": {
+                "name": "$WORKER_NAME",
+                "tag": "$SOURCE_SHA",
+                "digest": "$WORKER_DIGEST"
+              }
+            },
+            "evidence": {
+              "stagingVerified": true,
+              "artifactIdentityVerified": true
+            }
+          }
+          EOF
+
+          jq empty promotion-request/request.json
+
+          cat promotion-request/request.json
+
+      - name: Validate Kubernetes Staging evidence
+        id: eligibility
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f staging-evidence/evidence/promotion-eligibility.json
+          test -x ./ci/kubernetes/promotion/validate-staging-evidence.sh
+
+          ./ci/kubernetes/promotion/validate-staging-evidence.sh \
+            --evidence staging-evidence/evidence/promotion-eligibility.json \
+            --request promotion-request/request.json
+
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+
+
+  # ==========================================================================
+  # Production Release
+  #
+  # IMPORTANT:
+  # - Does not build.
+  # - Does not publish.
+  # - Does not create an artifact.
+  # - Uses the exact artifact already verified in staging.
+  #
+  # GitHub Environment "production" provides the approval boundary.
+  # ==========================================================================
+
+  production-release:
+    name: Production Release
+
+    needs:
+      - resolve-artifact
+      - validate-artifact
+      - production-eligibility
+
+    if: >
+      (
+        (
+          github.event_name == 'push' &&
+          startsWith(github.ref, 'refs/tags/v')
+        )
+        ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          inputs.environment == 'production'
+        )
+      )
+      &&
+      needs.production-eligibility.result == 'success'
+      &&
+      needs.production-eligibility.outputs.eligible == 'true'
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    environment:
+      name: production
+
+    timeout-minutes: 30
+
+    outputs:
+      deployment_started: ${{ steps.deployment-start.outputs.deployment_started }}
+
+    steps:
+
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+
+      - name: Validate deployment target and Production Kubernetes configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/deployment/validate-target.sh
+
+          ./ci/kubernetes/deployment/validate-target.sh production
+
+      - name: Validate Production workload manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f "$K8S_MANIFEST_DIR/validate.sh"
+
+          bash "$K8S_MANIFEST_DIR/validate.sh"
+
+      - name: Download original CI artifact manifest
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ needs.resolve-artifact.outputs.artifact_name }}
+          path: artifact
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.resolve-artifact.outputs.ci_run_id }}
+
+      - name: Revalidate original CI manifest before Production mutation
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          test -f "$CI_MANIFEST_PATH"
+
+          ./ci/kubernetes/deployment/validate-artifact.sh \
+            --manifest "$CI_MANIFEST_PATH" \
+            --expected-sha "$SOURCE_SHA"
+
+      - name: Build promotion request
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+          VERSION: ${{ needs.validate-artifact.outputs.version }}
+          API_DIGEST: ${{ needs.validate-artifact.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.validate-artifact.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p promotion-request
+
+          cat > promotion-request/request.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "sourceEnvironment": "staging",
+            "targetEnvironment": "production",
+            "release": {
+              "id": "$RELEASE_ID",
+              "source": "$SOURCE_SHA",
+              "version": "$VERSION"
+            },
+            "artifact": {
+              "api": {
+                "digest": "$API_DIGEST"
+              },
+              "worker": {
+                "digest": "$WORKER_DIGEST"
+              }
+            },
+            "evidence": {
+              "stagingVerified": true,
+              "artifactIdentityVerified": true
+            }
+          }
+          EOF
+
+          jq empty promotion-request/request.json
+
+          cat promotion-request/request.json
+
+      - name: Execute promotion authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/promotion/promote.sh
+
+          ./ci/promotion/promote.sh \
+            --request promotion-request/request.json
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/mini-write-github-cd-runner
+          role-session-name: mini-write-production-deployment
+
+      - name: Verify AWS assumed identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/deployment/validate-aws-identity.sh
+
+      - name: Start SSM Kubernetes API tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/connection/ssm-tunnel.sh start
+
+      - name: Validate Kubernetes Secret synchronization access
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/secrets/validate.sh
+
+      - name: Synchronize application Secrets from AWS Secrets Manager
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/secrets/sync.sh
+
+      - name: Create approved Production deployment request
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+          VERSION: ${{ needs.validate-artifact.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p deployment-request deployment-output evidence
+
+          cat > deployment-request/request.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "environment": "production",
+            "release": {
+              "id": "$RELEASE_ID",
+              "source": "$SOURCE_SHA",
+              "version": "$VERSION"
+            },
+            "artifacts": $(jq -c '.artifacts' "$CI_MANIFEST_PATH")
+          }
+          EOF
+
+          jq empty deployment-request/request.json
+
+          cat deployment-request/request.json
+
+      - name: Start deployment timer
+        id: deployment-timer-start
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          started_epoch="$(date +%s)"
+          started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          echo "started_epoch=${started_epoch}" >> "$GITHUB_OUTPUT"
+          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+
+      - name: Mark deployment start
+        id: deployment-start
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.validate-artifact.outputs.release_id }}
+        run: |
+          set -euo pipefail
+
+          echo "deployment_started=true" >> "$GITHUB_OUTPUT"
+
+          mkdir -p deployment-state
+
+          cat > deployment-state/deployment-started.json <<EOF
+          {
+            "schemaVersion": "1.0",
+            "project": "mini-write",
+            "environment": "production",
+            "release": "$RELEASE_ID",
+            "source": "$SOURCE_SHA",
+            "status": "mutation-started"
+          }
+          EOF
+
+          jq empty deployment-state/deployment-started.json
+
+          cat deployment-state/deployment-started.json
+
+      - name: Deploy approved artifact
+        shell: bash
+        env:
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/deployment/deploy.sh
+
+          ./ci/kubernetes/deployment/deploy.sh \
+            --request deployment-request/request.json \
+            --manifest-dir "$K8S_MANIFEST_DIR" \
+            --output-dir deployment-output
+
+      - name: FAILURE INJECTION (temporary)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Patch the API Deployment readinessProbe to a wrong path
+          # so verify-readiness.sh fails AFTER deployment_started=true.
+          kubectl -n "$K8S_NAMESPACE" patch deployment api \
+            --type=json \
+            -p='[{"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/path","value":"/health/ready/FAIL-INJECTED"}]'
+
+      - name: Verify Production rollout and actual Pod image identity
+        shell: bash
+        env:
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
+        run: |
+          set -euo pipefail
+
+          test -f deployment-output/deployment.json
+
+          ./ci/kubernetes/deployment/verify.sh \
+            --request deployment-request/request.json \
+            --output-dir deployment-output
+
+      - name: Verify Production application readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f deployment-output/runtime-verification.json
+
+          ./ci/kubernetes/deployment/verify-readiness.sh \
+            deployment-output/runtime-verification.json \
+            deployment-output/readiness-verification.json
+
+      - name: Capture deployment timing
+        id: deployment-timing
+        shell: bash
+        env:
+          DEPLOYMENT_STARTED_EPOCH: ${{ steps.deployment-timer-start.outputs.started_epoch }}
+          DEPLOYMENT_STARTED_AT: ${{ steps.deployment-timer-start.outputs.started_at }}
+        run: |
+          set -euo pipefail
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          duration_seconds="$((completed_epoch - DEPLOYMENT_STARTED_EPOCH))"
+
+          echo "deployment_started_at=${DEPLOYMENT_STARTED_AT}" >> "$GITHUB_OUTPUT"
+          echo "deployment_completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
+          echo "deployment_duration_seconds=${duration_seconds}" >> "$GITHUB_OUTPUT"
+
+          cat > deployment-output/deployment-timing.json <<EOF
+          {
+            "deploymentStartedAt": "${DEPLOYMENT_STARTED_AT}",
+            "deploymentCompletedAt": "${completed_at}",
+            "deploymentDurationSeconds": ${duration_seconds}
+          }
+          EOF
+
+          jq empty deployment-output/deployment-timing.json
+
+      - name: Record Production verification evidence
+        shell: bash
+        env:
+          DEPLOYMENT_OUTPUT_DIR: deployment-output
+          EVIDENCE_ENVIRONMENT: production
+          EVIDENCE_GATE: production-verification
+          DEPLOYMENT_STARTED_AT: ${{ steps.deployment-timing.outputs.deployment_started_at }}
+          DEPLOYMENT_COMPLETED_AT: ${{ steps.deployment-timing.outputs.deployment_completed_at }}
+          DEPLOYMENT_DURATION_SECONDS: ${{ steps.deployment-timing.outputs.deployment_duration_seconds }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p evidence
+
+          test -x ./ci/kubernetes/deployment/record-evidence.sh
+
+          ./ci/kubernetes/deployment/record-evidence.sh \
+            --request deployment-request/request.json \
+            --deployment-file deployment-output/deployment.json \
+            --runtime-file deployment-output/runtime-verification.json \
+            --readiness-file deployment-output/readiness-verification.json \
+            --output evidence/production-verification.json
+
+          cat evidence/production-verification.json
+
+      - name: Upload Production verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-kubernetes-production-verification-${{ needs.resolve-artifact.outputs.source_sha }}
+          path: |
+            evidence/production-verification.json
+            deployment-state/deployment-started.json
+            deployment-output/deployment.json
+            deployment-output/replicasets.json
+            deployment-output/pods.json
+            deployment-output/runtime-verification.json
+            deployment-output/readiness-verification.json
+            deployment-output/deployment-timing.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Stop SSM Kubernetes API tunnel
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/connection/ssm-tunnel.sh stop
+
+
+  # ==========================================================================
+  # Production Rollback
+  #
+  # Runs only when:
+  #   1. Production job actually failed.
+  #   2. Production mutation had started.
+  #
+  # Approval rejection / skipped production does NOT trigger rollback.
+  #
+  # Rollback:
+  #   - does not rebuild
+  #   - does not publish
+  #   - does not use latest
+  #   - does not checkout previous Git commit
+  #   - resolves previous known-good production artifact
+  # ==========================================================================
+
+  rollback-production:
+    name: Rollback Production
+
+    needs:
+      - resolve-artifact
+      - validate-artifact
+      - production-eligibility
+      - production-release
+
+    if: >
+      always()
+      &&
+      needs.production-release.result == 'failure'
+      &&
+      needs.production-release.outputs.deployment_started == 'true'
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - mini-write
+
+    environment:
+      name: production
+
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+
+    steps:
+
+      - name: Checkout failed release source
+        uses: actions/checkout@v4
+        # with:
+        #   ref: ${{ needs.resolve-artifact.outputs.source_sha }}
+
+      - name: Validate rollback target and Production Kubernetes configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/deployment/validate-target.sh
+
+          ./ci/kubernetes/deployment/validate-target.sh rollback
+
+      - name: Validate Production workload manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f "$K8S_MANIFEST_DIR/validate.sh"
+
+          bash "$K8S_MANIFEST_DIR/validate.sh"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/mini-write-github-cd-runner
+          role-session-name: mini-write-production-rollback
+
+      - name: Verify AWS assumed identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/deployment/validate-aws-identity.sh
+
+      - name: Resolve previous known-good Production release
+        id: resolve-previous
+        shell: bash
+        env:
+          FAILED_SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          KUBERNETES_CD_WORKFLOW: ${{ env.KUBERNETES_CD_WORKFLOW }}
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/rollback/resolve.sh
+
+          ./ci/kubernetes/rollback/resolve.sh
+
+      - name: Download previous Production verification evidence
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ steps.resolve-previous.outputs.artifact_name }}
+          path: previous-production
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.resolve-previous.outputs.run_id }}
+
+      - name: Validate rollback target evidence
+        shell: bash
+        env:
+          FAILED_SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          TARGET_SOURCE_SHA: ${{ steps.resolve-previous.outputs.source_sha }}
+          ROLLBACK_EVIDENCE: previous-production/evidence/production-verification.json
+        run: |
+          set -euo pipefail
+
+          test -f "$ROLLBACK_EVIDENCE"
+          test -x ./ci/kubernetes/rollback/validate.sh
+
+          ./ci/kubernetes/rollback/validate.sh
+
+      - name: Start SSM Kubernetes API tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/connection/ssm-tunnel.sh start
+
+      - name: Validate Kubernetes Secret synchronization access
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/secrets/validate.sh
+
+      - name: Synchronize application Secrets from AWS Secrets Manager
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/secrets/sync.sh
+
+      - name: Start rollback timer
+        id: rollback-timer-start
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          started_epoch="$(date +%s)"
+          started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          echo "started_epoch=${started_epoch}" >> "$GITHUB_OUTPUT"
+          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+
+      - name: Execute rollback through Kubernetes adapter
+        shell: bash
+        env:
+          FAILED_SOURCE_SHA: ${{ needs.resolve-artifact.outputs.source_sha }}
+          TARGET_SOURCE_SHA: ${{ steps.resolve-previous.outputs.source_sha }}
+          ROLLBACK_EVIDENCE: previous-production/evidence/production-verification.json
+        run: |
+          set -euo pipefail
+
+          test -x ./ci/kubernetes/rollback/execute.sh
+
+          ./ci/kubernetes/rollback/execute.sh
+
+      - name: Verify rollback rollout and actual Pod image identity
+        shell: bash
+        env:
+          DEPLOYMENT_OUTPUT_DIR: rollback-output
+        run: |
+          set -euo pipefail
+
+          test -f rollback-request/request.json
+          test -f rollback-output/deployment.json
+
+          ./ci/kubernetes/deployment/verify.sh \
+            --request rollback-request/request.json \
+            --output-dir rollback-output
+
+      - name: Verify rollback application readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f rollback-output/runtime-verification.json
+
+          ./ci/kubernetes/deployment/verify-readiness.sh \
+            rollback-output/runtime-verification.json \
+            rollback-output/readiness-verification.json
+
+      - name: Capture rollback timing
+        id: rollback-timing
+        shell: bash
+        env:
+          ROLLBACK_STARTED_EPOCH: ${{ steps.rollback-timer-start.outputs.started_epoch }}
+          ROLLBACK_STARTED_AT: ${{ steps.rollback-timer-start.outputs.started_at }}
+        run: |
+          set -euo pipefail
+
+          completed_epoch="$(date +%s)"
+          completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          duration_seconds="$((completed_epoch - ROLLBACK_STARTED_EPOCH))"
+
+          echo "rollback_started_at=${ROLLBACK_STARTED_AT}" >> "$GITHUB_OUTPUT"
+          echo "rollback_completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
+          echo "rollback_duration_seconds=${duration_seconds}" >> "$GITHUB_OUTPUT"
+
+          cat > rollback-output/rollback-timing.json <<EOF
+          {
+            "rollbackStartedAt": "${ROLLBACK_STARTED_AT}",
+            "rollbackCompletedAt": "${completed_at}",
+            "rollbackDurationSeconds": ${duration_seconds}
+          }
+          EOF
+
+          jq empty rollback-output/rollback-timing.json
+
+      - name: Record rollback verification evidence
+        shell: bash
+        env:
+          DEPLOYMENT_OUTPUT_DIR: rollback-output
+          EVIDENCE_ENVIRONMENT: rollback
+          EVIDENCE_GATE: rollback-verification
+          DEPLOYMENT_STARTED_AT: ${{ steps.rollback-timing.outputs.rollback_started_at }}
+          DEPLOYMENT_COMPLETED_AT: ${{ steps.rollback-timing.outputs.rollback_completed_at }}
+          DEPLOYMENT_DURATION_SECONDS: ${{ steps.rollback-timing.outputs.rollback_duration_seconds }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p rollback-evidence
+
+          test -x ./ci/kubernetes/deployment/record-evidence.sh
+
+          ./ci/kubernetes/deployment/record-evidence.sh \
+            --request rollback-request/request.json \
+            --deployment-file rollback-output/deployment.json \
+            --runtime-file rollback-output/runtime-verification.json \
+            --readiness-file rollback-output/readiness-verification.json \
+            --output rollback-evidence/rollback-verification.json
+
+          cat rollback-evidence/rollback-verification.json
+
+      - name: Upload rollback verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-write-kubernetes-rollback-verification-${{ needs.resolve-artifact.outputs.source_sha }}-${{ github.run_id }}
+          path: |
+            rollback-evidence/rollback-verification.json
+            rollback-output/rollback-timing.json
+            rollback-output/deployment.json
+            rollback-output/replicasets.json
+            rollback-output/pods.json
+            rollback-output/runtime-verification.json
+            rollback-output/readiness-verification.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Stop SSM Kubernetes API tunnel
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./ci/kubernetes/connection/ssm-tunnel.sh stop
