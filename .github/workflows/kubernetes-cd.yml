@@ -1120,16 +1120,16 @@ jobs:
             --manifest-dir "$K8S_MANIFEST_DIR" \
             --output-dir deployment-output
 
-      - name: FAILURE INJECTION (temporary)
-        shell: bash
-        run: |
-          set -euo pipefail
+      # - name: FAILURE INJECTION (temporary)
+      #   shell: bash
+      #   run: |
+      #     set -euo pipefail
 
-          # Patch the API Deployment readinessProbe to a wrong path
-          # so verify-readiness.sh fails AFTER deployment_started=true.
-          kubectl -n "$K8S_NAMESPACE" patch deployment api \
-            --type=json \
-            -p='[{"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/path","value":"/health/ready/FAIL-INJECTED"}]'
+      #     # Patch the API Deployment readinessProbe to a wrong path
+      #     # so verify-readiness.sh fails AFTER deployment_started=true.
+      #     kubectl -n "$K8S_NAMESPACE" patch deployment api \
+      #       --type=json \
+      #       -p='[{"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/path","value":"/health/ready/FAIL-INJECTED"}]'
 
       - name: Verify Production rollout and actual Pod image identity
         shell: bash

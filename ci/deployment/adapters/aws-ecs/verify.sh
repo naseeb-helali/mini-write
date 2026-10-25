@@ -255,7 +255,7 @@ EXPECTED_API_DIGEST="$(
 
 EXPECTED_WORKER_DIGEST="$(
   jq -er '.artifact.workerDigest' "$DEPLOYMENT_IDENTITY_FILE"
-)
+)"
 
 
 # ============================================================================
