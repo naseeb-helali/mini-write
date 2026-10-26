@@ -1,1079 +1,277 @@
 # Mini-Write
 
-A production-oriented DevOps engineering project designed to simulate the architecture, deployment, reliability, observability, and operational practices of a real distributed application platform within a controlled local environment.
+### DevOps Engineering Portfolio Project
 
-Mini-Write is not primarily an application-development exercise.
+Mini-Write is a hands-on DevOps engineering project built around a distributed image-processing application. It uses a realistic application workload to demonstrate how infrastructure is provisioned, software is validated and packaged, releases are deployed, and runtime behavior is observed and recovered across different deployment environments.
 
-It is an engineering platform built to explore how application services, infrastructure, deployment automation, reliability mechanisms, observability, and operational practices fit together as one coherent system.
+**The application is the workload. The engineering focus of this repository is the delivery and operation of that workload.**
+
+> **Engineering scope:** Demonstrate practical DevOps Engineering competency through implemented automation, operational workflows, verification, and retained evidence — without claiming enterprise-scale maturity or capabilities that have not been established.
 
 ---
 
-## 1. Project Overview
+## Project at a Glance
 
-Mini-Write consists of application services and supporting infrastructure deployed as a containerized distributed system.
+| Area | Implementation |
+|---|---|
+| Application workload | Node.js API and asynchronous image-processing Worker |
+| Gateway | Nginx |
+| Application state | PostgreSQL |
+| Queue and cache | Redis / Valkey, with BullMQ |
+| Object storage | MinIO for the VM/local path; Amazon S3 for AWS paths where configured |
+| Containers | Docker |
+| Infrastructure as Code | Terraform |
+| Host configuration | Ansible |
+| CI/CD | GitHub Actions |
+| AWS | VPC, networking, EC2, ECS, ECR, RDS, ElastiCache/Valkey, S3, IAM, and related services |
+| Orchestration | Docker Compose, Amazon ECS, and self-managed Kubernetes on AWS EC2 |
+| Kubernetes networking | Calico |
+| Observability | Prometheus, Grafana, Loki, Promtail, Alertmanager, and exporters where configured |
+| Security practices | IAM and OIDC integration, secrets handling, network controls, dependency and container-image scanning |
 
-At a high level:
+The implementation and evidence are not uniform across all deployment targets. The documentation identifies the scope and verification status of each capability.
+
+## Architecture Overview
+
+The application follows an asynchronous processing model:
 
 ```text
-                         Mini-Write Platform
-                                │
-                ┌───────────────┴───────────────┐
-                │                               │
-          Application Layer              Infrastructure Layer
-                │                               │
-        ┌───────┴───────┐              ┌────────┴────────┐
-        │               │              │                 │
-       API            Worker       PostgreSQL          Redis
-        │               │                                │
-        └───────┬───────┘                                │
-                │                                        │
-                └────────────────┬───────────────────────┘
-                                 │
-                               MinIO
-                                 │
-                                 ▼
-                         Operational Platform
-                                 │
-             ┌───────────────────┼───────────────────┐
-             │                   │                   │
-         Prometheus             Loki            Alertmanager
-             │                   │                   │
-             └───────────────────┴───────────────────┘
-                                 │
-                              Grafana
-````
-
-The platform is intentionally designed around operational concerns such as:
-
-* reproducible infrastructure
-* service isolation
-* deterministic deployment
-* runtime reliability
-* failure classification
-* retry and timeout behavior
-* health verification
-* structured logging
-* metrics
-* alerting
-* operational troubleshooting
-
----
-
-# 2. Engineering Goals
-
-The project is designed around the following engineering goals.
-
-### Reproducibility
-
-Infrastructure and deployment behavior should be reproducible rather than dependent on undocumented manual configuration.
-
-### Reliability
-
-Failures are treated as architectural events that require explicit detection, classification, containment, recovery, and observability.
-
-### Observability
-
-The system should provide enough evidence to answer operational questions such as:
-
-* What failed?
-* Which component failed?
-* When did it fail?
-* Which dependency was involved?
-* Was the failure transient?
-* Was a retry attempted?
-* Did recovery succeed?
-* What was the effect on the system?
-
-### Operational Determinism
-
-The same operational inputs should produce predictable behavior.
-
-### Maintainability
-
-Infrastructure, runtime behavior, deployment logic, and documentation are separated into explicit domains.
-
-### Progressive Engineering
-
-The platform evolves through distinct engineering capabilities rather than introducing operational complexity prematurely.
-
----
-
-# 3. Current Architecture
-
-The platform is composed of several architectural layers.
-
-```text
-┌──────────────────────────────────────────────┐
-│                Application                  │
-│                                              │
-│              API + Worker                   │
-└──────────────────────┬───────────────────────┘
-                       │
-┌──────────────────────▼───────────────────────┐
-│              Runtime Reliability             │
-│                                              │
-│ Execution Context                            │
-│ Operation Resolution                         │
-│ Reliability Policies                         │
-│ Timeout / Retry / Recovery                   │
-│ Failure Classification                       │
-│ Infrastructure Boundaries                    │
-└──────────────────────┬───────────────────────┘
-                       │
-┌──────────────────────▼───────────────────────┐
-│              Infrastructure                 │
-│                                              │
-│ Docker / PostgreSQL / Redis / MinIO         │
-│ Host / Networking / Security Baseline       │
-└──────────────────────┬───────────────────────┘
-                       │
-┌──────────────────────▼───────────────────────┐
-│               Observability                  │
-│                                              │
-│ Prometheus / Loki / Promtail                │
-│ Alertmanager / Grafana                      │
-└──────────────────────┬───────────────────────┘
-                       │
-┌──────────────────────▼───────────────────────┐
-│                Operations                   │
-│                                              │
-│ Deployment / Health / Incidents / Recovery  │
-└──────────────────────────────────────────────┘
+                         Client
+                           |
+                           v
+                     Nginx Gateway
+                           |
+                           v
+                    Node.js API
+                     /    |     \
+                    /     |      \
+                   v      v       v
+             PostgreSQL  Redis   Object Storage
+                           |
+                        BullMQ
+                           |
+                           v
+                    Image Worker
+                           |
+                           v
+                  Processed Objects
 ```
 
-Detailed architectural information is available under:
+- **API:** Handles incoming application requests, authentication-related operations, upload coordination, and application state interactions.
+- **Queue:** Decouples request handling from background processing.
+- **Worker:** Consumes asynchronous jobs and performs image processing.
+- **PostgreSQL:** Persists application state.
+- **Redis / Valkey:** Provides queue infrastructure.
+- **Object storage:** Stores uploaded and processed objects.
+- **Nginx:** Acts as the HTTP gateway in the Compose-based deployment path.
 
-`docs/architecture/`
+The same workload is delivered through multiple infrastructure and runtime models. Their topology and dependencies are described in the deployment documentation.
 
----
+## Deployment Environments
 
-# 4. Services
+Mini-Write contains three distinct deployment paths:
 
-## API
+| Deployment path | Runtime model | Provisioning and delivery |
+|---|---|---|
+| VM | Linux VM with Docker Compose and Nginx | Ansible host configuration and VM deployment adapter |
+| AWS ECS | ECS services and task definitions using AWS infrastructure | Terraform and ECS deployment adapter |
+| Kubernetes on AWS EC2 | Self-managed Kubernetes cluster using kubeadm, containerd, and Calico; **not Amazon EKS** | Dedicated Terraform configuration, a separate Kubernetes Ansible project, Kubernetes manifests, and a dedicated GitHub Actions workflow |
 
-The API provides the HTTP-facing application interface.
+### Kubernetes isolation
 
-Its responsibilities include:
+The Kubernetes-on-EC2 provisioning and configuration path is maintained separately under `infra/kubernetes-ec2/`. It does not replace or modify the existing VM Ansible project under `infra/ansible/`.
 
-* authentication
-* user operations
-* profile access
-* ID-card upload
-* health endpoints
-* metrics exposure
+The documented Kubernetes topology targets one control-plane node and two worker nodes. It is a self-managed cluster exercise, not an EKS deployment or a highly available Kubernetes control plane.
 
-The API also integrates with the Reliability Runtime.
+### AWS environment boundary
 
-Relevant runtime concepts include:
-
-* execution context
-* operation context
-* reliability policies
-* infrastructure execution boundaries
-* timeout handling
-* retry handling
-* failure classification
-* runtime completion
+The ECS and Kubernetes-on-EC2 paths use AWS infrastructure and shared Staging data services where configured. The Kubernetes workflow's Staging and Production stages currently target the same Staging cluster and namespace. They represent workflow stages, not two independently provisioned environments.
 
 ---
 
-## Worker
+## DevOps Engineering Work
 
-The Worker processes asynchronous background jobs.
+### 1. Continuous Integration
 
-Its architecture adapts the Runtime Reliability model to a background-job execution environment rather than an HTTP request lifecycle.
+The CI workflow automates the repository's validation and container delivery stages, including:
 
-The Worker is integrated with Redis/BullMQ and participates in the application's asynchronous processing workflow.
+- API and Worker test execution.
+- Coverage measurement and a configured line-coverage threshold.
+- Docker image builds using Buildx.
+- Container image publication and release identity.
+- Dependency and image security scanning configuration.
+- Workflow execution optimization with retained timing evidence.
+
+**Measured CI optimization**
+
+The following figures are based on retained project measurements, not a general performance guarantee:
+
+| Measurement | Baseline | Optimized median | Reduction |
+|---|---:|---:|---:|
+| End-to-end CI execution | 1,866 s | 893 s | ~52.1% |
+| Container build execution | 954 s | 412 s | ~56.8% |
+
+The measurements and their methodology are documented in [Competency Evidence](docs/06-engineering-evidence/competency-evidence.md). Security scanning is configured as non-blocking in the reviewed workflow; it should therefore be interpreted as an informational check, not a release-blocking security gate.
+
+### 2. Infrastructure as Code
+
+Terraform is used to define AWS infrastructure and environment resources. The repository includes reusable infrastructure modules and environment-specific configuration.
+
+The Staging infrastructure workflow supports controlled Terraform execution. Retained evidence includes an apply followed by a reconciliation plan reporting no changes.
+
+### 3. Configuration and Provisioning
+
+Ansible is used for Linux host preparation and configuration in the VM deployment path. Kubernetes-on-EC2 has its own Ansible project and provisioning workflow, kept independent from the VM Ansible tree.
+
+### 4. Deployment and Release Management
+
+The repository maintains deployment automation for:
+
+- VM/Compose deployment and recovery.
+- AWS ECS release deployment and rollback.
+- Kubernetes workload deployment, verification, and rollback on EC2-hosted Kubernetes.
+
+Container image tags and digests are used as release identity inputs in the delivery process. Deployment workflows include readiness or verification steps appropriate to their implementation.
+
+### 5. Observability and Operations
+
+The project includes application health endpoints, Prometheus metrics, dashboards, log collection configuration, alert rules, and infrastructure exporters in the paths where configured.
+
+Observability coverage differs by platform. The presence of configuration files does not by itself prove that every integration is deployed, receiving data, or delivering notifications in a live environment.
+
+### 6. Reliability and Recovery
+
+Reliability-related implementation includes queue-based asynchronous processing, retry and idempotency mechanisms, health/readiness checks, deployment state handling, rollback automation, and operational validation.
+
+These controls have different levels of implementation and verification. Known limitations are documented rather than presented as solved capabilities.
 
 ---
 
-## PostgreSQL
-
-PostgreSQL provides persistent relational data storage.
-
-It is used by the application for persistent user-related data.
-
----
-
-## Redis
-
-Redis provides infrastructure for asynchronous job processing and queue coordination.
-
-The API uses Redis to enqueue background processing work, while the Worker consumes the resulting jobs.
-
----
-
-## MinIO
-
-MinIO provides object storage for uploaded files.
-
-The ID-upload workflow therefore crosses multiple infrastructure boundaries:
+## Repository Structure
 
 ```text
-API
- │
- ├── MinIO
- ├── PostgreSQL
- └── Redis
-```
-
----
-
-# 5. Infrastructure
-
-Infrastructure is managed using Infrastructure as Code with Ansible.
-
-The infrastructure layer covers:
-
-* host preparation
-* Docker installation/configuration
-* deployment directories
-* GitHub Actions runner
-* security baseline
-* deployment runtime
-* operational infrastructure configuration
-
-Infrastructure documentation is available under:
-
-`docs/infrastructure/`
-
-The infrastructure architecture is intentionally designed around reproducibility rather than manual server configuration.
-
----
-
-# 6. Deployment
-
-Deployment is designed around a local staging environment running on a dedicated Ubuntu VM.
-
-The deployment model separates:
-
-```text
-Infrastructure Provisioning
-        │
-        ▼
-Application Deployment
-        │
-        ▼
-Health Verification
-        │
-        ▼
-Operational Validation
-```
-
-Deployment documentation is available under:
-
-`docs/deployment/`
-
----
-
-# 7. CI/CD
-
-The project uses GitHub Actions with a self-hosted runner hosted inside the project VM.
-
-The runner is associated with the staging environment and is used to execute the project's CI/CD workflow.
-
-The deployment pipeline is documented in:
-
-`docs/deployment/ci-cd.md`
-
-The CI/CD layer is intentionally treated as part of the operational architecture rather than merely as a build script.
-
----
-
-# 8. Reliability Architecture
-
-Reliability is implemented as an architectural capability.
-
-The Runtime Reliability model provides a controlled execution boundary around application operations.
-
-Conceptually:
-
-```text
-Operation
-    │
-    ▼
-Execution Context
-    │
-    ▼
-Operation Resolution
-    │
-    ▼
-Reliability Policy
-    │
-    ▼
-Reliability Activation
-    │
-    ▼
-Infrastructure Operation
-    │
-    ├── Timeout
-    ├── Failure Classification
-    ├── Retry
-    └── Recovery
-    │
-    ▼
-Runtime Outcome
-```
-
-The runtime also maintains execution information such as:
-
-* request/execution identity
-* execution state
-* operation
-* reliability policy
-* attempts
-* retries
-* failure classification
-* recovery state
-* timestamps
-
-Reliability documentation is available under:
-
-`docs/reliability/`
-
----
-
-# 9. Failure Engineering
-
-Failures are not treated as generic exceptions.
-
-The system distinguishes different failure classes, including:
-
-* timeout
-* dependency failure
-* validation failure
-* authentication failure
-* authorization failure
-* internal failure
-
-The classification influences whether a failure can safely be retried or recovered.
-
-The general model is:
-
-```text
-Failure
-   │
-   ▼
-Classification
-   │
-   ▼
-Recoverability
-   │
-   ▼
-Retryability
-   │
-   ▼
-Runtime Decision
-   │
-   ├── Retry
-   ├── Recover
-   └── Propagate
-```
-
-Detailed failure engineering documentation is available in:
-
-`docs/reliability/failure-model.md`
-
----
-
-# 10. Observability
-
-The platform uses a multi-signal observability architecture.
-
-```text
-                    Application / Infrastructure
-                              │
-                ┌─────────────┴─────────────┐
-                │                           │
-             Metrics                      Logs
-                │                           │
-                ▼                           ▼
-           Prometheus                     Loki
-                │                           ▲
-                │                        Promtail
-                │                           ▲
-                │                     Docker / Host Logs
-                │
-                └─────────────┬─────────────┘
-                              │
-                              ▼
-                           Grafana
-                              │
-                              ▼
-                        Operational View
-```
-
-The observability stack includes:
-
-* Prometheus
-* Loki
-* Promtail
-* Alertmanager
-* Grafana
-* Node Exporter
-* cAdvisor
-* PostgreSQL exporter
-* Redis exporter
-
-Observability documentation is available under:
-
-`docs/observability/`
-
----
-
-# 11. Metrics
-
-Metrics are used at multiple levels.
-
-### Application Metrics
-
-Examples include:
-
-* HTTP request count
-* HTTP request duration
-* HTTP errors
-* authentication attempts
-* upload activity
-
-### Business Metrics
-
-Examples include:
-
-* user registrations
-* successful logins
-* ID uploads
-* background jobs enqueued
-
-### Worker Metrics
-
-Examples include:
-
-* processed jobs
-* failed jobs
-* retries
-* active jobs
-* queue depth
-* job duration
-
-### Runtime Metrics
-
-Runtime reliability exposes execution-level signals such as:
-
-* runtime operations
-* runtime retries
-* runtime failures
-* runtime operation duration
-
-### Infrastructure Metrics
-
-The observability platform also collects:
-
-* host CPU
-* host memory
-* filesystem utilization
-* container metrics
-* PostgreSQL metrics
-* Redis metrics
-
----
-
-# 12. Logging
-
-Application and runtime logs are emitted as structured JSON.
-
-Logs include common operational context such as:
-
-```text
-timestamp
-level
-service
-environment
-request_id
-operation_id
-execution_id
-```
-
-Runtime-specific logs can additionally identify:
-
-```text
-dependency
-failure_type
-attempt
-next_attempt
-outcome
-```
-
-Logs are collected through Promtail and stored in Loki.
-
----
-
-# 13. Alerting
-
-Prometheus evaluates alert rules covering multiple operational domains.
-
-Current alert categories include:
-
-### Infrastructure
-
-* Node Exporter availability
-* CPU utilization
-* memory utilization
-* disk availability
-
-### API
-
-* API availability
-* API error rate
-* API latency
-
-### Worker
-
-* Worker availability
-* queue backlog
-* job failure rate
-* job latency
-* storage latency
-* database latency
-
-Alertmanager groups and routes alerts according to severity and operational dimensions.
-
----
-
-# 14. Dashboards
-
-Grafana provides operational dashboards for different system domains.
-
-Current dashboard areas include:
-
-```text
-System
-Application
-Queue
-Deployment
-Incidents
-```
-
-The dashboards are provisioned from files rather than being treated as manually configured UI state.
-
-This allows dashboard configuration to remain part of the repository and deployment process.
-
----
-
-# 15. Health Model
-
-The API exposes health endpoints for different purposes.
-
-### Liveness
-
-```text
-/health/live
-```
-
-Liveness answers:
-
-> Is the service process alive?
-
-It is intentionally lightweight.
-
-### Readiness
-
-```text
-/health/ready
-```
-
-Readiness performs actual service verification and therefore represents whether the application is ready to serve operational traffic.
-
-The distinction is important:
-
-```text
-Liveness
-    ≠
-Readiness
-```
-
-A service may be alive while not being ready.
-
-Detailed health behavior is documented in:
-
-`docs/operations/health-checks.md`
-
----
-
-# 16. Development
-
-Development documentation is organized separately from production operations.
-
-Start here:
-
-`docs/development/getting-started.md`
-
-Then continue with:
-
-* `docs/development/local-development.md`
-* `docs/development/testing.md`
-
-The development documentation explains how to prepare the environment, run the project, and validate behavior.
-
----
-
-# 17. Documentation Structure
-
-The documentation is organized by engineering domain rather than by implementation chronology.
-
-```text
-docs/
-│
-├── architecture/
-├── infrastructure/
-├── development/
-├── deployment/
-├── operations/
-├── reliability/
-├── observability/
-├── reference/
-├── troubleshooting/
-└── project/
-```
-
-### Architecture
-
-System structure, service boundaries, networking, and runtime architecture.
-
-### Infrastructure
-
-Infrastructure as Code, Ansible, host provisioning, Docker, security, and infrastructure operations.
-
-### Development
-
-Developer setup, local development, and testing.
-
-### Deployment
-
-Deployment behavior, configuration, and CI/CD.
-
-### Operations
-
-Operational procedures, health checks, and incident response.
-
-### Reliability
-
-Reliability architecture, failure engineering, runtime reliability, and recovery.
-
-### Observability
-
-Metrics, logging, alerting, and dashboards.
-
-### Reference
-
-Stable technical reference material such as configuration, environment variables, runtime interfaces, and metrics.
-
-### Troubleshooting
-
-Problem-oriented guidance for common, infrastructure, deployment, and runtime issues.
-
-### Project
-
-Long-term engineering evolution and roadmap information.
-
----
-
-# 18. Recommended Reading Order
-
-For someone new to the project:
-
-```text
-README.md
-    │
-    ▼
-docs/architecture/overview.md
-    │
-    ▼
-docs/architecture/system-architecture.md
-    │
-    ▼
-docs/architecture/service-architecture.md
-    │
-    ▼
-docs/infrastructure/overview.md
-    │
-    ▼
-docs/development/getting-started.md
-    │
-    ▼
-docs/deployment/deployment.md
-    │
-    ▼
-docs/operations/operations.md
-    │
-    ▼
-docs/reliability/reliability.md
-    │
-    ▼
-docs/observability/observability.md
-```
-
-For troubleshooting an existing deployment, start instead with:
-
-```text
-docs/operations/
-        │
-        ▼
-docs/troubleshooting/
-        │
-        ├── common-issues.md
-        ├── infrastructure-issues.md
-        ├── deployment-issues.md
-        └── runtime-issues.md
-```
-
----
-
-# 19. Repository Structure
-
-The repository is organized approximately as follows:
-
-```text
-mini-write/
-│
-├── api/
-│   └── src/
-│
-├── worker/
-│   └── src/
-│
-├── infra/
-│   └── ansible/
-│
-├── observability/
-│   ├── Prometheus/
-│   ├── promtail/
-│   ├── loki/
-│   ├── alertmanager/
-│   └── grafana/
-│
+.
 ├── .github/
 │   └── workflows/
-│
-├── docker-compose.yml
-│
-├── docs/
-│   ├── architecture/
-│   ├── infrastructure/
-│   ├── development/
-│   ├── deployment/
-│   ├── operations/
-│   ├── reliability/
-│   ├── observability/
-│   ├── reference/
-│   ├── troubleshooting/
-│   └── project/
-│
-├── CONTRIBUTING.md
-├── SECURITY.md
-└── CHANGELOG.md
+│       ├── ci.yml
+│       ├── cd.yml
+│       ├── infrastructure.yml
+│       └── kubernetes-cd.yml
+├── api/                         # Node.js API service
+├── worker/                      # Background image-processing worker
+├── proxy/                       # Nginx gateway configuration
+├── ci/                          # CI/CD scripts, adapters, promotion and rollback
+├── infra/
+│   ├── terraform/                # AWS infrastructure as code
+│   ├── ansible/                  # VM host provisioning and configuration
+│   └── kubernetes-ec2/           # Independent Kubernetes-on-EC2 provisioning path
+├── observability/                # Prometheus, Grafana, Loki and related configuration
+├── evidence/                     # Retained engineering and execution evidence
+├── scripts/                      # Supporting project scripts
+├── docker-compose.yml            # Compose-based application stack
+├── .env.example                  # Environment-variable template
+└── docs/                         # Engineering documentation
 ```
 
-The exact repository contents may evolve as the platform progresses.
+The tree above is a high-level guide; individual directories contain additional implementation details.
+
+## Getting Started
+
+### Prerequisites
+
+The exact prerequisites depend on which part of the project you intend to run or inspect.
+
+| Activity | Required tooling |
+|---|---|
+| Inspect or run the application locally | Git, Docker Engine, Docker Compose |
+| Run API or Worker tests directly | Node.js and npm |
+| Validate AWS infrastructure | Terraform and AWS credentials with the required permissions |
+| Provision/configure Linux hosts | Ansible and SSH access |
+| Execute deployment workflows | GitHub Actions configuration, appropriate repository secrets/variables, and target-environment access |
+| Operate the Kubernetes path | AWS access, EC2 instances, kubeadm-based cluster prerequisites, and the dedicated Kubernetes configuration |
+
+### Configuration
+
+1. Clone the repository.
+2. Review `.env.example` and the Compose configuration before starting the local stack.
+3. Create a local `.env` file and replace all placeholder credentials and secrets with unique values.
+4. Confirm that the configured ports, service endpoints, storage provider, and credentials are consistent with the deployment path you intend to use.
+5. Do not commit `.env`, real credentials, private keys, kubeconfig files, or unencrypted secret material.
+
+The repository contains multiple deployment paths with different configuration requirements. Do not assume that the root Compose environment file is suitable for AWS ECS or Kubernetes without reviewing the corresponding deployment documentation.
+
+> **Important:** This README intentionally does not present a one-command production deployment. Infrastructure creation and deployment require environment-specific configuration, credentials, and review. Follow the relevant platform document and runbook before executing changes.
+
+## Documentation
+
+The `docs/` directory is the authoritative project documentation set.
+
+| Documentation area | What it covers |
+|---|---|
+| [Project Overview](docs/00-project/project-overview.md) | Project purpose, workload, deployment models, and claim boundaries |
+| [Engineering Scope](docs/00-project/engineering-scope.md) | Target DevOps competency scope and explicit exclusions |
+| [System Architecture](docs/01-architecture/system-architecture.md) | Application components and service interactions |
+| [Deployment Architecture](docs/01-architecture/deployment-architecture.md) | Deployment topologies and platform boundaries |
+| [Infrastructure](docs/02-infrastructure/infrastructure-overview.md) | Infrastructure structure and relationships |
+| [Terraform & Provisioning](docs/02-infrastructure/terraform-and-provisioning.md) | Infrastructure automation and host configuration |
+| [AWS Infrastructure](docs/02-infrastructure/aws-infrastructure.md) | AWS resources and environment design |
+| [CI Pipeline](docs/03-delivery/ci-pipeline.md) | Validation, build, scanning, and CI optimization |
+| [Artifact Management](docs/03-delivery/artifact-management.md) | Image identity, artifacts, and release handling |
+| [VM Deployment](docs/03-delivery/deployment-platforms/vm-deployment.md) | VM/Compose deployment path |
+| [AWS ECS Deployment](docs/03-delivery/deployment-platforms/aws-ecs-deployment.md) | ECS delivery and recovery path |
+| [Kubernetes on EC2](docs/03-delivery/deployment-platforms/kubernetes-ec2-deployment.md) | Self-managed Kubernetes provisioning and delivery |
+| [Observability](docs/04-operations/observability.md) | Metrics, logs, dashboards, and alert configuration |
+| [Reliability & Recovery](docs/04-operations/reliability-and-recovery.md) | Reliability mechanisms and recovery behavior |
+| [Operational Runbooks](docs/04-operations/operational-runbooks.md) | Operational procedures and response guidance |
+| [DevOps Security Practices](docs/05-security/devops-security-practices.md) | Security controls across infrastructure and delivery |
+| [Competency Evidence](docs/06-engineering-evidence/competency-evidence.md) | Measured results and evidence of engineering work |
+| [Validation & Limitations](docs/06-engineering-evidence/validation-and-limitations.md) | What was checked, known gaps, and verification boundaries |
+
+For the full documentation map and governance model, see [Documentation Index](docs/README.md), [Documentation Architecture & Scope](docs/00-project/documentation-architecture-and-scope.md), and [Documentation Traceability Matrix](docs/00-project/documentation-traceability-matrix.md).
 
 ---
 
-# 20. Configuration and Secrets
+## Evidence and Engineering Claims
 
-Configuration is separated from application logic.
+This repository is intended to be reviewed through an evidence chain:
 
-Environment-specific configuration should not be hard-coded into source code.
+**DevOps responsibility → implementation → verification method → retained evidence → measured or observed result.**
 
-Sensitive values such as:
+The `evidence/` directory contains retained project artifacts for selected CI/CD, deployment recovery, infrastructure automation, and release-management activities. The documentation links implementation areas to the available evidence.
 
-* passwords
-* tokens
-* JWT secrets
-* credentials
-* private keys
+Status terms are used deliberately:
 
-must not be committed to the repository.
+- **Implemented:** relevant code or automation exists in the reviewed repository.
+- **Configured:** declarative configuration exists; runtime success is not implied.
+- **Verified:** a specific test, command, workflow run, or retained artifact supports the stated result.
+- **Partial:** only part of the capability or its verification is established.
+- **Not established:** the reviewed source and evidence do not support the claim.
 
-See:
+A historical successful run is evidence of that recorded execution; it does not automatically prove that a later source revision is correct.
 
-* `docs/deployment/configuration.md`
-* `docs/reference/configuration-reference.md`
-* `docs/reference/environment-variables.md`
-* `SECURITY.md`
+## Known Boundaries
 
----
+Mini-Write is a portfolio engineering project, not a claim of enterprise production ownership. The following boundaries are important when interpreting the implementation:
 
-# 21. Troubleshooting
+- The Kubernetes cluster uses a single control-plane node and is not an HA control plane.
+- Kubernetes workflow stages labelled Staging and Production currently use the same Staging cluster and namespace.
+- Centralized Kubernetes-specific observability is not established in the reviewed repository snapshot.
+- Observability and alert delivery capabilities vary by deployment platform.
+- The reviewed Trivy scan configuration is non-blocking.
+- Some runtime reliability and deployment integration gaps remain documented in the validation record.
+- The reviewed ECS verification script has a shell syntax issue; historical ECS execution evidence is kept distinct from current-source validation.
+- The repository snapshot used to prepare the documentation did not include Git metadata, so complete commit history and tracked-file status were not assessed.
 
-Troubleshooting is organized by failure domain.
+These boundaries do not negate the engineering work that is implemented and evidenced. They define precisely what the project does and does not claim.
 
-### General
+## Project Status and Documentation Baseline
 
-`docs/troubleshooting/common-issues.md`
+The documentation was prepared from the supplied repository snapshot reviewed on **2026-10-24**. Repository code, infrastructure, workflows, and evidence may evolve after that baseline. Revalidate relevant claims when their implementation or environment changes.
 
-### Infrastructure
-
-`docs/troubleshooting/infrastructure-issues.md`
-
-### Deployment
-
-`docs/troubleshooting/deployment-issues.md`
-
-### Runtime
-
-`docs/troubleshooting/runtime-issues.md`
-
-The preferred troubleshooting approach is evidence-driven:
-
-```text
-Symptom
-   │
-   ▼
-Identify Layer
-   │
-   ▼
-Collect Evidence
-   │
-   ├── Logs
-   ├── Metrics
-   ├── Health
-   ├── Runtime State
-   └── Infrastructure State
-   │
-   ▼
-Identify Failure Domain
-   │
-   ▼
-Apply Corrective Action
-   │
-   ▼
-Validate Recovery
-```
+For a capability-level assessment, consult [Validation & Limitations](docs/06-engineering-evidence/validation-and-limitations.md) rather than inferring operational maturity from the technology list.
 
 ---
 
-# 22. Engineering Principles
+## License
 
-The project follows several principles throughout its architecture.
-
-### Reliability Before Complexity
-
-New mechanisms should solve an identified reliability problem rather than introduce complexity for its own sake.
-
-### Explicit Boundaries
-
-Infrastructure, application, runtime, deployment, and observability responsibilities should remain distinguishable.
-
-### Deterministic Behavior
-
-Operational behavior should be predictable and explainable.
-
-### Failure-Aware Design
-
-Failures are expected architectural conditions rather than exceptional events that can simply be ignored.
-
-### Evidence-Driven Operations
-
-Operational decisions should be based on observable evidence.
-
-### Reproducibility
-
-Infrastructure and operational configuration should be represented as code whenever practical.
-
-### Separation of Concerns
-
-Each engineering layer should have a clear responsibility.
-
-### Production-Oriented Thinking
-
-Even though Mini-Write runs in a constrained local environment, its architecture is designed using production-oriented engineering principles.
-
----
-
-# 23. Project Evolution
-
-Mini-Write is developed incrementally.
-
-The engineering evolution has progressed through capabilities including:
-
-```text
-Infrastructure Foundation
-        │
-        ▼
-Infrastructure Reproducibility
-        │
-        ▼
-Observability
-        │
-        ▼
-Reliability Architecture
-        │
-        ▼
-Runtime Reliability
-        │
-        ▼
-Operational Engineering
-        │
-        ▼
-Continuous Improvement
-```
-
-The project documentation preserves the resulting engineering knowledge rather than documenting only the final implementation.
-
-For the broader evolution model, see:
-
-`docs/project/engineering-evolution.md`
-
----
-
-# 24. Status
-
-Mini-Write is an actively evolving engineering project.
-
-The repository should therefore be treated as a living system:
-
-```text
-Architecture
-     ↓
-Implementation
-     ↓
-Validation
-     ↓
-Operations
-     ↓
-Evidence
-     ↓
-Engineering Improvement
-     ↓
-Architecture Evolution
-```
-
-Documentation is updated alongside meaningful architectural and operational changes.
-
----
-
-# 25. Contributing
-
-Engineering contribution guidelines are documented in:
-
-`CONTRIBUTING.md`
-
-Changes should preserve:
-
-* architectural boundaries
-* operational determinism
-* reliability guarantees
-* observability
-* reproducibility
-* documentation consistency
-
----
-
-# 26. Security
-
-Security-related practices and reporting guidance are documented in:
-
-`SECURITY.md`
-
-Security-sensitive information must never be committed to the repository.
-
----
-
-# 27. License
-
-License information should be added here when a project license is formally selected.
-
----
-
-# 28. Quick Navigation
-
-| Area              | Documentation           |
-| ----------------- | ----------------------- |
-| Architecture      | `docs/architecture/`    |
-| Infrastructure    | `docs/infrastructure/`  |
-| Development       | `docs/development/`     |
-| Deployment        | `docs/deployment/`      |
-| Operations        | `docs/operations/`      |
-| Reliability       | `docs/reliability/`     |
-| Observability     | `docs/observability/`   |
-| Reference         | `docs/reference/`       |
-| Troubleshooting   | `docs/troubleshooting/` |
-| Project Evolution | `docs/project/`         |
-| Contribution      | `CONTRIBUTING.md`       |
-| Security          | `SECURITY.md`           |
-| Changes           | `CHANGELOG.md`          |
-
----
-
-# 29. Final Mental Model
-
-Mini-Write should be understood as an operational platform rather than a collection of independent containers.
-
-The complete system can be viewed as:
-
-```text
-                         MINI-WRITE
-                             │
-        ┌────────────────────┼────────────────────┐
-        │                    │                    │
-        ▼                    ▼                    ▼
-   Application          Infrastructure        Operations
-        │                    │                    │
-    API / Worker       Docker / Ansible     Deployment / Health
-        │                    │                    │
-        └──────────────┬─────┴────────────────────┘
-                       │
-                       ▼
-                Runtime Reliability
-                       │
-          ┌────────────┼────────────┐
-          │            │            │
-          ▼            ▼            ▼
-       Timeout       Retry       Recovery
-          │            │            │
-          └────────────┼────────────┘
-                       │
-                       ▼
-                 Failure Model
-                       │
-                       ▼
-                Observability
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-       Metrics        Logs       Alerts
-          │            │            │
-          └────────────┼────────────┘
-                       ▼
-                    Grafana
-                       │
-                       ▼
-               Operational Evidence
-                       │
-                       ▼
-              Engineering Improvement
-```
-
-The central engineering objective is therefore not simply to make the application run.
-
-It is to build a system whose:
-
-```text
-architecture
-   +
-infrastructure
-   +
-runtime
-   +
-deployment
-   +
-reliability
-   +
-observability
-   +
-operations
-```
-
-work together coherently and can be understood, reproduced, operated, diagnosed, and evolved by an engineer who did not originally build the system.
-
-```
-```
+No license grant is asserted by this README. Check the repository for an explicit `LICENSE` file before reusing, modifying, or redistributing the project.
